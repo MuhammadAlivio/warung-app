@@ -7,6 +7,7 @@ import TwoFactorVerifyPage from "./pages/Verifikasi2FA";
 import TwoFactorSetupWizard from "./pages/Setup2FA";
 import { StockProvider } from "./lib/stores/StockContext";
 import StockPage from "./pages/Stok";
+import Kasir from "./pages/Kasir";
 
 export default function App() {
   return (
@@ -23,6 +24,8 @@ export default function App() {
 
           {/* Stok Barang: tambah/edit/hapus berupa modal di halaman ini (TODO: bungkus dengan route guard auth) */}
           <Route path="/admin/stok" element={<StockPage />} />
+
+          <Route path="/admin/kasir" element={<Kasir />} />
 
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>

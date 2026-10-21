@@ -18,7 +18,7 @@ import { cn } from "../../utils/cn";
  * `badge` diisi lewat prop `badges` berdasarkan `id`.
  */
 const NAV = [
-  { id: "kasir", label: "Kasir / POS", icon: ShoppingBasket },
+  { id: "kasir", label: "Kasir / POS", icon: ShoppingBasket, to: "/admin/kasir" },
   { id: "stok", label: "Stok Barang", icon: Package, to: "/admin/stok" },
   { id: "pembelian", label: "Pembelian & Barang Masuk", icon: PackagePlus },
   { id: "keuangan", label: "Keuangan", icon: BarChart3 },
@@ -30,7 +30,7 @@ const itemBase = "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-lef
 
 function NavBadge({ children }) {
   return (
-    <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded bg-brand-100 px-1 text-[10px] font-semibold text-brand-700">
+    <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-700">
       {children}
     </span>
   );
