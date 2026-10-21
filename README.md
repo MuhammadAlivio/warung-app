@@ -5,35 +5,42 @@ React + Vite + Tailwind CSS v3, dengan react-hook-form + zod dan lucide-react.
 ## Menjalankan
 
 ```bash
+cd frontend
 npm install
 npm run dev
 ```
 
+Backend belum ada isinya; lihat `backend/README.md`.
+
 ## Halaman (rute)
 
-| Rute | Halaman |
+| Rute | File (di `frontend/src/`) |
 | --- | --- |
-| `/login` | Login User |
-| `/register` | Register User |
-| `/lupa-password` | Lupa Password |
-| `/admin/login` | Login Admin |
-| `/admin/2fa` | Verifikasi 2FA (OTP 6 digit; kode `000000` ditolak untuk demo error) |
-| `/admin/2fa/setup` | Setup 2FA Wizard (3 langkah) |
-| `/admin/stok` | Stok Barang (tambah, edit, hapus lewat modal) |
+| `/login` | `pages/Login.jsx` |
+| `/register` | `pages/Register.jsx` |
+| `/lupa-password` | `pages/LupaPassword.jsx` |
+| `/admin/login` | `pages/LoginAdmin.jsx` |
+| `/admin/2fa` | `pages/Verifikasi2FA.jsx` (OTP 6 digit; kode `000000` ditolak untuk demo error) |
+| `/admin/2fa/setup` | `pages/Setup2FA.jsx` (wizard 3 langkah) |
+| `/admin/stok` | `pages/Stok.jsx` (tambah, edit, hapus lewat modal) |
 
 ## Struktur
 
 ```
-src/
-├── components/
-│   ├── ui/        Button, Input, PasswordInput, Checkbox, Select, Textarea,
-│   │              Card, Badge, Modal, Stepper, Pagination, OtpInput
-│   └── layout/    AuthLayout, DashboardLayout
-├── features/
-│   ├── auth/      halaman auth, skema zod, wizard 2FA
-│   └── stock/     halaman stok, modal form/hapus, context, mock data
-├── hooks/         useTotpCountdown
-└── lib/           cn, format
+warung-app/
+├── frontend/          React + Vite + Tailwind
+│   └── src/
+│       ├── App.jsx    daftar rute
+│       ├── pages/     satu file = satu halaman
+│       └── lib/
+│           ├── components/  ui/, layout/, auth/, stock/
+│           ├── stores/      StockContext
+│           ├── schemas/     validasi zod (auth, stock)
+│           ├── data/        mock data
+│           ├── config/      authCopy
+│           ├── hooks/       useTotpCountdown
+│           └── utils/       cn, format
+└── backend/           kerangka kosong
 ```
 
 ## Catatan
