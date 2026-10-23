@@ -1,68 +1,145 @@
 export const SUPPLIERS = [
-  { id: "s1", name: "PT Pakan Sejahtera", phone: "081234567890", address: "Jl. Industri No. 5, Surabaya" },
-  { id: "s2", name: "CV Nutrisi Hewan", phone: "087654321098", address: "Jl. Raya Malang No. 12" },
-  { id: "s3", name: "UD Makmur Jaya", phone: "089876543210", address: "Jl. Pasar Baru No. 8, Sidoarjo" },
+  { id: "s1", name: "CV Sinar Jaya", phone: "081234567890", address: "Jl. Industri No. 5, Surabaya" },
+  { id: "s2", name: "UD Berkah Makmur", phone: "087654321098", address: "Jl. Raya Malang No. 12" },
+  { id: "s3", name: "PT Sentosa Pangan", phone: "089876543210", address: "Jl. Pasar Baru No. 8, Sidoarjo" },
+];
+
+export const LOCATIONS = [
+  { value: "gudang_utama", label: "Gudang utama" },
+  { value: "toko", label: "Toko" },
+  { value: "gudang_b", label: "Gudang B" },
+];
+
+export const PAYMENT_METHODS = [
+  { value: "transfer_bank", label: "Transfer bank" },
+  { value: "tunai", label: "Tunai" },
+  { value: "cek", label: "Cek / Giro" },
 ];
 
 export function getPurchaseStatus(status) {
   const map = {
     belum_diterima: { key: "belum_diterima", label: "Belum diterima", variant: "warning" },
-    diterima_sebagian: { key: "diterima_sebagian", label: "Diterima sebagian", variant: "brand" },
-    diterima: { key: "diterima", label: "Diterima", variant: "brand" },
+    diterima_sebagian: { key: "diterima_sebagian", label: "Diterima sebagian", variant: "info" },
+    diterima: { key: "diterima", label: "Diterima semua", variant: "success" },
   };
   return map[status] || map.belum_diterima;
+}
+
+export function getPaymentStatus(saldo) {
+  if (saldo <= 0) return { label: "Lunas", variant: "success" };
+  return { label: "Sebagian", variant: "warning" };
 }
 
 export const INITIAL_PURCHASES = [
   {
     id: "pb1",
-    purchaseNo: "PB-20261020-0001",
+    purchaseNo: "INV-SJ-1016",
     supplierId: "s1",
-    date: "2026-10-20",
-    status: "belum_diterima",
+    date: "2026-10-16",
+    dueDate: "2026-10-23",
+    location: "gudang_utama",
+    status: "diterima_sebagian",
+    paymentStatus: "sebagian",
+    initialPayment: 300000,
+    initialPaymentDate: "2026-10-16",
+    paymentMethod: "transfer_bank",
+    additionalCost: 0,
     items: [
-      { id: "pi1", productId: "p1", productName: "Beras Premium 5kg", qty: 50, qtyReceived: 0, buyPrice: 62000, subtotal: 3100000 },
-      { id: "pi2", productId: "p3", productName: "Gula Pasir 1kg", qty: 100, qtyReceived: 0, buyPrice: 14000, subtotal: 1400000 },
+      {
+        id: "pi1",
+        productId: "p5",
+        productName: "Minyak Goreng Sania 1 L",
+        sku: "BRG-002",
+        unit: "pcs",
+        qty: 48,
+        qtyReceived: 24,
+        buyPrice: 17500,
+      },
     ],
-    total: 4500000,
-    notes: "Pengiriman estimasi 3 hari",
+    receptions: [
+      {
+        id: "rec1",
+        receptionNo: "BM-018",
+        date: "2026-10-16",
+        time: "09:15",
+        receivedBy: "Dina",
+        items: [{ productId: "p5", productName: "Minyak Goreng Sania 1 L", qty: 24 }],
+        notes: "Barang diterima dalam kondisi baik. Sisa 24 pcs dikirim pada 19 Oktober 2026.",
+      },
+    ],
+    estimatedNextDelivery: "2026-10-19",
+    notes: "Pengiriman bertahap. Konfirmasi jumlah barang saat tiba di gudang.",
+    createdBy: "Dina Anggraini",
+    createdAt: "2026-10-16 08:45",
   },
   {
     id: "pb2",
-    purchaseNo: "PB-20261018-0002",
+    purchaseNo: "INV-BM-1015",
     supplierId: "s2",
-    date: "2026-10-18",
-    status: "diterima_sebagian",
+    date: "2026-10-15",
+    dueDate: "2026-10-22",
+    location: "gudang_utama",
+    status: "diterima",
+    paymentStatus: "lunas",
+    initialPayment: 3400000,
+    initialPaymentDate: "2026-10-15",
+    paymentMethod: "transfer_bank",
+    additionalCost: 0,
     items: [
-      { id: "pi3", productId: "p5", productName: "Minyak Goreng 2L", qty: 40, qtyReceived: 25, buyPrice: 32000, subtotal: 1280000 },
-      { id: "pi4", productId: "p8", productName: "Tepung Terigu 1kg", qty: 60, qtyReceived: 60, buyPrice: 12000, subtotal: 720000 },
+      {
+        id: "pi3",
+        productId: "p2",
+        productName: "Beras Medium 5 Kg",
+        sku: "BRG-005",
+        unit: "karung",
+        qty: 50,
+        qtyReceived: 50,
+        buyPrice: 68000,
+      },
     ],
-    total: 2000000,
-    notes: "",
+    receptions: [
+      {
+        id: "rec2",
+        receptionNo: "BM-017",
+        date: "2026-10-15",
+        time: "10:00",
+        receivedBy: "Dina",
+        items: [{ productId: "p2", productName: "Beras Medium 5 Kg", qty: 50 }],
+        notes: "Semua barang diterima lengkap.",
+      },
+    ],
+    notes: "Sudah lengkap",
+    createdBy: "Dina Anggraini",
+    createdAt: "2026-10-15 09:00",
   },
   {
     id: "pb3",
-    purchaseNo: "PB-20261015-0003",
+    purchaseNo: "INV-SP-1014",
     supplierId: "s3",
-    date: "2026-10-15",
-    status: "diterima",
-    items: [
-      { id: "pi5", productId: "p2", productName: "Mie Instan Goreng", qty: 200, qtyReceived: 200, buyPrice: 2800, subtotal: 560000 },
-      { id: "pi6", productId: "p4", productName: "Kopi Sachet", qty: 150, qtyReceived: 150, buyPrice: 1500, subtotal: 225000 },
-    ],
-    total: 785000,
-    notes: "Sudah lengkap",
-  },
-  {
-    id: "pb4",
-    purchaseNo: "PB-20261022-0004",
-    supplierId: "s1",
-    date: "2026-10-22",
+    date: "2026-10-14",
+    dueDate: "2026-10-21",
+    location: "toko",
     status: "belum_diterima",
+    paymentStatus: "sebagian",
+    initialPayment: 120000,
+    initialPaymentDate: "2026-10-14",
+    paymentMethod: "tunai",
+    additionalCost: 0,
     items: [
-      { id: "pi7", productId: "p10", productName: "Sabun Cuci 800ml", qty: 30, qtyReceived: 0, buyPrice: 8500, subtotal: 255000 },
+      {
+        id: "pi5",
+        productId: "p4",
+        productName: "Mie Goreng Instan",
+        sku: "BRG-008",
+        unit: "karton",
+        qty: 30,
+        qtyReceived: 0,
+        buyPrice: 37600,
+      },
     ],
-    total: 255000,
+    receptions: [],
     notes: "",
+    createdBy: "Dina Anggraini",
+    createdAt: "2026-10-14 08:00",
   },
 ];

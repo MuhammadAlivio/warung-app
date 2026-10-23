@@ -5,12 +5,12 @@ const PurchaseCtx = createContext(null);
 
 function generatePurchaseNo(date, seq) {
   const d = date.replaceAll("-", "");
-  return `PB-${d}-${String(seq).padStart(4, "0")}`;
+  return `INV-${d}-${String(seq).padStart(4, "0")}`;
 }
 
 export function PurchaseProvider({ children }) {
   const [purchases, setPurchases] = useState(INITIAL_PURCHASES);
-  const [seq, setSeq] = useState(5); // mock data has 4 entries
+  const [seq, setSeq] = useState(5); // mock data has 3 entries
 
   const addPurchase = (data) => {
     const no = generatePurchaseNo(data.date, seq);
@@ -20,7 +20,17 @@ export function PurchaseProvider({ children }) {
       id: i.id || crypto.randomUUID(),
     }));
     setPurchases((prev) => [
-      { ...data, items, id: crypto.randomUUID(), purchaseNo: no, status: "belum_diterima" },
+      {
+        ...data,
+        items,
+        id: crypto.randomUUID(),
+        purchaseNo: no,
+        status: "belum_diterima",
+        paymentStatus: data.initialPayment > 0 ? "sebagian" : "belum_bayar",
+        receptions: [],
+        createdBy: "Dina Anggraini",
+        createdAt: new Date().toISOString().slice(0, 16).replace("T", " "),
+      },
       ...prev,
     ]);
   };
@@ -33,23 +43,44 @@ export function PurchaseProvider({ children }) {
   const deletePurchase = (id) =>
     setPurchases((prev) => prev.filter((p) => p.id !== id));
 
-  const receiveItems = (purchaseId, receivedMap) =>
+  const receiveItems = (purchaseId, receptionData) =>
     setPurchases((prev) =>
       prev.map((p) => {
         if (p.id !== purchaseId) return p;
-        const items = p.items.map((item) =>
-          receivedMap[item.id] != null
-            ? { ...item, qtyReceived: receivedMap[item.id] }
-            : item,
-        );
-        const allReceived = items.every((i) => i.qtyReceived >= i.qty);
-        const someReceived = items.some((i) => i.qtyReceived > 0);
+
+        // Update item quantities
+        const items = p.items.map((item) => {
+          const received = receptionData.itemsReceived?.find((r) => r.productId === item.productId);
+          if (received) {
+            return { ...item, qtyReceived: (item.qtyReceived || 0) + received.qty };
+          }
+          return item;
+        });
+
+        // Determine new status
+        const allReceived = items.every((i) => (i.qtyReceived || 0) >= i.qty);
+        const someReceived = items.some((i) => (i.qtyReceived || 0) > 0);
         const status = allReceived
           ? "diterima"
           : someReceived
             ? "diterima_sebagian"
             : "belum_diterima";
-        return { ...p, items, status };
+
+        // Add reception record
+        const newReception = {
+          id: crypto.randomUUID(),
+          receptionNo: `BM-${String(Math.floor(Math.random() * 900) + 100)}`,
+          date: receptionData.date,
+          time: new Date().toTimeString().slice(0, 5),
+          receivedBy: receptionData.receivedBy || "Dina",
+          deliveryNote: receptionData.deliveryNote || "",
+          items: receptionData.itemsReceived || [],
+          notes: receptionData.notes || "",
+        };
+
+        const receptions = [...(p.receptions || []), newReception];
+
+        return { ...p, items, status, receptions };
       }),
     );
 

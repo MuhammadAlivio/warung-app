@@ -5,6 +5,8 @@ const variants = {
   warning: "bg-amber-50 text-amber-700",
   danger: "bg-red-50 text-red-700",
   neutral: "bg-neutral-100 text-neutral-600",
+  success: "bg-green-50 text-green-700",
+  info: "bg-amber-50 text-amber-700",
 };
 
 export default function Badge({ variant = "brand", className, children, ...props }) {
@@ -12,7 +14,7 @@ export default function Badge({ variant = "brand", className, children, ...props
     <span
       className={cn(
         "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold",
-        variants[variant],
+        variants[variant] ?? variants.neutral,
         className
       )}
       {...props}
