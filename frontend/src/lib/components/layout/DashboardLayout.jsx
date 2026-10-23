@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NavLink } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import {
   BarChart3,
   ChevronDown,
@@ -20,8 +20,8 @@ import { cn } from "../../utils/cn";
 const NAV = [
   { id: "kasir", label: "Kasir / POS", icon: ShoppingBasket, to: "/admin/kasir" },
   { id: "stok", label: "Stok Barang", icon: Package, to: "/admin/stok" },
-  { id: "pembelian", label: "Pembelian & Barang Masuk", icon: PackagePlus },
-  { id: "keuangan", label: "Keuangan", icon: BarChart3 },
+  { id: "pembelian", label: "Pembelian & Barang Masuk", icon: PackagePlus, to: "/admin/pembelian" },
+  { id: "keuangan", label: "Keuangan", icon: BarChart3, to: "/admin/keuangan" },
   { id: "riwayat", label: "Riwayat Transaksi", icon: Receipt },
   { id: "pelanggan", label: "Daftar Pelanggan", icon: User },
 ];
@@ -129,8 +129,23 @@ export default function DashboardLayout({
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 items-center border-b border-neutral-100 bg-white px-6 sm:px-8">
           <nav aria-label="Breadcrumb" className="text-xs text-neutral-500">
-            Ruang kerja <span className="mx-1.5">/</span>
-            <span className="font-semibold text-neutral-900">{breadcrumb}</span>
+            {Array.isArray(breadcrumb) ? (
+              breadcrumb.map((item, idx) => (
+                <span key={idx}>
+                  {idx > 0 && <span className="mx-1.5">/</span>}
+                  {item.href && idx < breadcrumb.length - 1 ? (
+                    <Link to={item.href} className="hover:text-neutral-700">{item.label}</Link>
+                  ) : (
+                    <span className={idx === breadcrumb.length - 1 ? "font-semibold text-neutral-900" : ""}>{item.label}</span>
+                  )}
+                </span>
+              ))
+            ) : (
+              <>
+                Ruang kerja <span className="mx-1.5">/</span>
+                <span className="font-semibold text-neutral-900">{breadcrumb}</span>
+              </>
+            )}
           </nav>
         </header>
 
