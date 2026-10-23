@@ -10,3 +10,4 @@ export { default as Textarea } from "./Textarea";
 export { default as Modal, ModalBody, ModalFooter } from "./Modal";
 export { default as Stepper } from "./Stepper";
 export { default as Pagination } from "./Pagination";
+export { default as ImageUpload } from "./ImageUpload";

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, ChevronDown, PackageSearch, Plus, Search, SlidersHorizontal } from "lucide-react";
+import { AlertTriangle, ChevronDown, ImageIcon, PackageSearch, Plus, Search, SlidersHorizontal } from "lucide-react";
 import DashboardLayout from "../lib/components/layout/DashboardLayout";
 import { Badge, Button, Card, Pagination } from "../lib/components/ui";
 import { formatRupiah } from "../lib/utils/format";
@@ -72,8 +72,14 @@ export default function StockPage() {
     if (duplicate) return { field: "name", message: "Nama barang sudah ada" };
 
     await new Promise((r) => setTimeout(r, 500)); // TODO: panggilan API
-    if (editingId) updateProduct(editingId, values);
-    else addProduct(values);
+    // TODO: unggah File ke backend lalu simpan URL hasilnya. Sementara dipakai URL lokal (hanya berlaku selama sesi).
+    const image = values.image instanceof File ? URL.createObjectURL(values.image) : values.image ?? null;
+    const oldImage = modal?.type === "edit" ? modal.product.image : null;
+    if (oldImage?.startsWith("blob:") && oldImage !== image) URL.revokeObjectURL(oldImage);
+
+    const data = { ...values, image };
+    if (editingId) updateProduct(editingId, data);
+    else addProduct(data);
     closeModal();
   };
 
@@ -175,8 +181,22 @@ export default function StockPage() {
                     return (
                       <tr key={p.id} className="border-b border-neutral-100 last:border-0">
                         <td className="px-4 py-3">
-                          <p className="font-semibold text-neutral-900">{p.name}</p>
-                          <p className="mt-0.5 text-[10px] text-neutral-500">{p.note}</p>
+                          <div className="flex items-center gap-3">
+                            {p.image ? (
+                              <img src={p.image} alt={`Foto ${p.name}`} className="h-10 w-10 shrink-0 rounded-md object-cover" />
+                            ) : (
+                              <div
+                                aria-hidden
+                                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-neutral-100 text-neutral-400"
+                              >
+                                <ImageIcon className="h-4 w-4" />
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="font-semibold text-neutral-900">{p.name}</p>
+                              <p className="mt-0.5 text-[10px] text-neutral-500">{p.note}</p>
+                            </div>
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-neutral-700">{p.category}</td>
                         <td className="px-4 py-3 tabular-nums text-neutral-700">{formatRupiah(p.buyPrice)}</td>

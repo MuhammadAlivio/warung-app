@@ -1,12 +1,13 @@
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Button, Input, Modal, ModalBody, ModalFooter, Select, Textarea } from "../ui";
+import { Button, ImageUpload, Input, Modal, ModalBody, ModalFooter, Select, Textarea } from "../ui";
 import { CATEGORIES } from "../../data/stockMockData";
 import { productSchema } from "../../schemas/stock";
 
-const EMPTY = { name: "", description: "", category: "", buyPrice: "", sellPrice: "", stock: "", minStock: "" };
+const EMPTY = { image: null, name: "", description: "", category: "", buyPrice: "", sellPrice: "", stock: "", minStock: "" };
 
 const toFormValues = (p) => ({
+  image: p.image ?? null,
   name: p.name,
   description: p.description ?? "",
   category: p.category,
@@ -19,6 +20,7 @@ const toFormValues = (p) => ({
 function StockFormBody({ product, onSave, onClose }) {
   const {
     register,
+    control,
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
@@ -49,6 +51,13 @@ function StockFormBody({ product, onSave, onClose }) {
           options={CATEGORIES.map((c) => ({ value: c, label: c }))}
           error={errors.category?.message}
           {...register("category")}
+        />
+        <Controller
+          name="image"
+          control={control}
+          render={({ field }) => (
+            <ImageUpload label="Foto Barang" value={field.value} onChange={field.onChange} error={errors.image?.message} />
+          )}
         />
         <Input
           label="Harga Beli"
