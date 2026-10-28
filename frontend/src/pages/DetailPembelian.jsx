@@ -41,6 +41,7 @@ export default function DetailPembelian() {
   const [confirming, setConfirming] = useState(false);
 
   if (!purchase) {
+    navigate("/admin/pembelian");
     return (
       <DashboardLayout breadcrumb="Pembelian & Barang Masuk">
         <div className="mx-auto flex max-w-4xl flex-col items-center gap-2 py-20 text-center">

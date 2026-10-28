@@ -14,6 +14,7 @@ import PembelianBarangMasuk from "./pages/PembelianBarangMasuk";
 import BuatPembelian from "./pages/BuatPembelian";
 import DetailPembelian from "./pages/DetailPembelian";
 import KeuanganPage from "./pages/Keuangan";
+import PengaturanProfilToko from "./pages/PengaturanProfilToko";
 
 export default function App() {
   return (
@@ -43,6 +44,9 @@ export default function App() {
 
               {/* Keuangan */}
               <Route path="/admin/keuangan" element={<KeuanganPage />} />
+
+              {/* Pengaturan */}
+              <Route path="/admin/pengaturan/profil-toko" element={<PengaturanProfilToko />} />
 
               <Route path="*" element={<Navigate to="/login" replace />} />
             </Routes>
