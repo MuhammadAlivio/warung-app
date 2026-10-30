@@ -15,6 +15,7 @@ import {
   User,
 } from "lucide-react";
 import { cn } from "../../utils/cn";
+import ChatbotWidget from "../chatbot/ChatbotWidget";
 
 const NAV = [
   {
@@ -45,11 +46,13 @@ const NAV = [
     id: "riwayat",
     label: "Riwayat Transaksi",
     icon: Receipt,
+    to: "/admin/riwayat-transaksi",
   },
   {
     id: "pelanggan",
     label: "Daftar Pelanggan",
     icon: User,
+    to: "/admin/pelanggan",
   },
 ];
 
@@ -313,6 +316,9 @@ export default function DashboardLayout({
           {children}
         </main>
       </div>
+
+      {/* Asisten chatbot (FAB → popup → panel samping) tersedia di semua halaman admin */}
+      <ChatbotWidget />
     </div>
   );
 }

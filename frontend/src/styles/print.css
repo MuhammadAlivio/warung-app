@@ -1,0 +1,17 @@
+/* Gaya cetak struk & faktur. Diimpor di baris paling atas index.css. */
+@page invoice { size: A4; margin: 12mm; }
+@page receipt { size: 58mm auto; margin: 2mm; }
+
+@media print {
+  body * { visibility: hidden; }
+  /* Cegah halaman kosong tambahan: konten aplikasi tidak ikut memakan tinggi kertas */
+  body[data-print] #root { height: 0 !important; overflow: hidden !important; }
+  .print-receipt, .print-invoice { display: none; }
+  body[data-print="receipt"] .print-receipt,
+  body[data-print="invoice"] .print-invoice { display: block !important; }
+  body[data-print="receipt"] .print-receipt, body[data-print="receipt"] .print-receipt *,
+  body[data-print="invoice"] .print-invoice, body[data-print="invoice"] .print-invoice * { visibility: visible; }
+  body[data-print] .print-receipt, body[data-print] .print-invoice { position: absolute; left: 0; top: 0; }
+  .print-receipt { page: receipt; width: 58mm; }
+  .print-invoice { page: invoice; width: 100%; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
