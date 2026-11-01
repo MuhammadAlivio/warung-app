@@ -24,7 +24,7 @@ export function PurchaseProvider({ children }) {
         ...data,
         items,
         id: crypto.randomUUID(),
-        purchaseNo: no,
+        purchaseNo: data.purchaseNo || no,
         status: "belum_diterima",
         paymentStatus: data.initialPayment > 0 ? "sebagian" : "belum_bayar",
         receptions: [],
@@ -42,6 +42,18 @@ export function PurchaseProvider({ children }) {
 
   const deletePurchase = (id) =>
     setPurchases((prev) => prev.filter((p) => p.id !== id));
+
+  const addPayment = (purchaseId, { amount, date, method }) =>
+    setPurchases((prev) =>
+      prev.map((p) => {
+        if (p.id !== purchaseId) return p;
+        const payments = [...(p.payments || []), { id: crypto.randomUUID(), amount, date, method }];
+        const next = { ...p, payments };
+        const paid = (p.initialPayment || 0) + payments.reduce((s, x) => s + x.amount, 0);
+        const total = p.items.reduce((s, i) => s + i.qty * i.buyPrice, 0);
+        return { ...next, paymentStatus: paid >= total ? "lunas" : "sebagian" };
+      }),
+    );
 
   const receiveItems = (purchaseId, receptionData) =>
     setPurchases((prev) =>
@@ -85,7 +97,7 @@ export function PurchaseProvider({ children }) {
     );
 
   const value = useMemo(
-    () => ({ purchases, addPurchase, updatePurchase, deletePurchase, receiveItems }),
+    () => ({ purchases, addPurchase, updatePurchase, deletePurchase, addPayment, receiveItems }),
     [purchases],
   );
 

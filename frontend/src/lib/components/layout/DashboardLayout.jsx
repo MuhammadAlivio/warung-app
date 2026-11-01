@@ -67,6 +67,30 @@ function NavBadge({ children }) {
   );
 }
 
+// Breadcrumb: string tunggal, atau array [{ label, href? }]; item terakhir ditebalkan.
+function Breadcrumb({ items }) {
+  const list = Array.isArray(items) ? items : [{ label: items || "Dashboard" }];
+  return (
+    <nav aria-label="Breadcrumb" className="truncate text-sm text-neutral-500">
+      {list.map((item, i) => {
+        const last = i === list.length - 1;
+        return (
+          <span key={`${item.label}-${i}`}>
+            {i > 0 && <span className="mx-2 text-neutral-400">/</span>}
+            {item.href && !last ? (
+              <Link to={item.href} className="hover:text-neutral-900">
+                {item.label}
+              </Link>
+            ) : (
+              <span className={last ? "font-semibold text-neutral-900" : undefined}>{item.label}</span>
+            )}
+          </span>
+        );
+      })}
+    </nav>
+  );
+}
+
 export default function DashboardLayout({
   breadcrumb,
   badges = {},
@@ -188,9 +212,7 @@ export default function DashboardLayout({
         <header className="sticky top-0 z-30 flex h-16 w-full shrink-0 items-center justify-between gap-4 border-b border-neutral-200 bg-white px-4 sm:px-6 lg:px-8">
           {/* BREADCRUMB */}
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm text-neutral-500">
-              {breadcrumb || "Dashboard"}
-            </p>
+            <Breadcrumb items={breadcrumb} />
           </div>
 
           {/* AKSI DAN PROFIL DI KANAN */}

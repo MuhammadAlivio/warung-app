@@ -18,6 +18,7 @@ import DaftarPelanggan from "./pages/DaftarPelanggan";
 import PembelianBarangMasuk from "./pages/PembelianBarangMasuk";
 import BuatPembelian from "./pages/BuatPembelian";
 import DetailPembelian from "./pages/DetailPembelian";
+import TerimaBarang from "./pages/TerimaBarang";
 import KeuanganPage from "./pages/Keuangan";
 import PengaturanProfilToko from "./pages/PengaturanProfilToko";
 
@@ -56,6 +57,7 @@ export default function App() {
                   <Route path="/admin/pembelian" element={<PembelianBarangMasuk />} />
                   <Route path="/admin/pembelian/buat" element={<BuatPembelian />} />
                   <Route path="/admin/pembelian/:id" element={<DetailPembelian />} />
+                  <Route path="/admin/pembelian/:id/terima" element={<TerimaBarang />} />
 
                   {/* Keuangan */}
                   <Route path="/admin/keuangan" element={<KeuanganPage />} />

@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, ArrowLeft, Calendar, FileText, Search, Trash2 } from "lucide-react";
-import DashboardLayout from "../lib/components/layout/DashboardLayout";
+import { ArrowLeft, Info, Plus, Search, Trash2 } from "lucide-react";
+import AdminShell from "../lib/components/layout/AdminShell";
 import { Button, Card, Input, Select, Textarea } from "../lib/components/ui";
+import { PILL_CLASS, formatDateShort } from "../lib/utils/purchase";
 import { formatRupiah } from "../lib/utils/format";
 import { cn } from "../lib/utils/cn";
 import { usePurchase } from "../lib/stores/PurchaseContext";
@@ -15,10 +16,7 @@ const supplierOptions = SUPPLIERS.map((s) => ({ value: s.id, label: s.name }));
 const today = new Date().toISOString().slice(0, 10);
 const sevenDaysLater = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
 
-const formatDate = (d) => {
-  if (!d) return "-";
-  return new Date(d).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
-};
+const MONO = "font-mono tabular-nums";
 
 export default function BuatPembelian() {
   const navigate = useNavigate();
@@ -36,12 +34,10 @@ export default function BuatPembelian() {
 
   // Payment
   const [initialPayment, setInitialPayment] = useState(0);
-  const [payAll, setPayAll] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState("transfer_bank");
   const [dueDate, setDueDate] = useState(sevenDaysLater);
 
   const [saving, setSaving] = useState(false);
-  const [isDraft, setIsDraft] = useState(false);
 
   const availableProducts = useMemo(() => {
     const addedIds = new Set(items.map((i) => i.productId));
@@ -70,18 +66,18 @@ export default function BuatPembelian() {
   const subtotal = items.reduce((sum, i) => sum + i.qty * i.buyPrice, 0);
   const additionalCost = 0;
   const total = subtotal + additionalCost;
-  const payment = payAll ? total : Number(initialPayment) || 0;
+  const payment = Math.min(total, Number(initialPayment) || 0);
   const sisaUtang = total - payment;
 
-  const canSave = supplierId && date && items.length > 0 && items.every((i) => i.qty > 0 && i.buyPrice > 0);
+  const canSave = supplierId && invoiceNo.trim() && date && dueDate && items.length > 0 && items.every((i) => i.qty > 0 && i.buyPrice > 0);
 
-  const handleSave = async (draft = false) => {
+  const handleSave = async () => {
     if (!canSave) return;
     setSaving(true);
     await new Promise((r) => setTimeout(r, 400));
     addPurchase({
       supplierId,
-      purchaseNo: invoiceNo,
+      purchaseNo: invoiceNo.trim(),
       date,
       dueDate,
       location,
@@ -106,36 +102,27 @@ export default function BuatPembelian() {
   };
 
   return (
-    <DashboardLayout
-      breadcrumb={[
-        { label: "Ruang kerja", href: "/admin" },
-        { label: "Pembelian & Barang Masuk", href: "/admin/pembelian" },
-      ]}
+    <AdminShell
+      breadcrumb={[{ label: "Ruang kerja" }, { label: "Pembelian & Barang Masuk", href: "/admin/pembelian" }]}
     >
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-6xl pb-16">
         {/* Header */}
         <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
           <div>
             <button
               type="button"
               onClick={() => navigate("/admin/pembelian")}
-              className="mb-2 inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-500 hover:text-neutral-900 transition-colors"
+              className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-700 hover:underline"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               Pembelian & Barang Masuk
             </button>
-            <h1 className="text-2xl font-bold tracking-tight text-neutral-900">Buat pembelian</h1>
+            <h1 className="text-[28px] font-bold leading-tight tracking-tight text-neutral-900">Buat pembelian</h1>
             <p className="mt-1 text-xs text-neutral-500">
               Catat pembelian ke pemasok. Penerimaan barang dicatat secara terpisah.
             </p>
           </div>
-          <button
-            type="button"
-            className="flex h-9 items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 transition-colors"
-          >
-            <FileText className="h-3.5 w-3.5" />
-            Draf pembelian
-          </button>
+          <span className={PILL_CLASS.gray}>Draf pembelian</span>
         </div>
 
         <div className="grid gap-5 lg:grid-cols-5">
@@ -248,30 +235,32 @@ export default function BuatPembelian() {
                               <p className="text-[11px] text-neutral-400">{item.sku} · {item.unit}</p>
                             </td>
                             <td className="px-4 py-3">
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex h-8 w-24 items-center rounded-md border border-neutral-200 bg-white px-2 focus-within:border-brand-600 focus-within:ring-4 focus-within:ring-brand-600/15">
                                 <input
                                   type="number"
                                   min={1}
+                                  aria-label={`Jumlah ${item.productName}`}
                                   value={item.qty}
                                   onChange={(e) => updateItem(idx, "qty", Math.max(1, Number(e.target.value)))}
-                                  className="h-8 w-16 rounded-md border border-neutral-200 px-2 text-xs tabular-nums text-neutral-900 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15"
+                                  className="w-full min-w-0 bg-transparent text-xs tabular-nums text-neutral-900 focus:outline-none"
                                 />
-                                <span className="text-neutral-400">pcs</span>
+                                <span className="text-[11px] text-neutral-500">pcs</span>
                               </div>
                             </td>
                             <td className="px-4 py-3">
-                              <div className="flex items-center gap-1">
-                                <span className="text-neutral-400">Rp</span>
+                              <div className="flex h-8 w-28 items-center rounded-md border border-neutral-200 bg-white px-2 focus-within:border-brand-600 focus-within:ring-4 focus-within:ring-brand-600/15">
+                                <span className="text-[11px] text-neutral-500">Rp</span>
                                 <input
                                   type="number"
                                   min={0}
+                                  aria-label={`Harga modal ${item.productName}`}
                                   value={item.buyPrice}
                                   onChange={(e) => updateItem(idx, "buyPrice", Math.max(0, Number(e.target.value)))}
-                                  className="h-8 w-24 rounded-md border border-neutral-200 px-2 text-xs tabular-nums text-neutral-900 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15"
+                                  className={`w-full min-w-0 bg-transparent pl-1 text-xs text-neutral-900 focus:outline-none ${MONO}`}
                                 />
                               </div>
                             </td>
-                            <td className="px-4 py-3 tabular-nums text-neutral-700">
+                            <td className={`px-4 py-3 text-neutral-700 ${MONO}`}>
                               {formatRupiah(item.qty * item.buyPrice)}
                             </td>
                             <td className="px-4 py-3">
@@ -307,16 +296,11 @@ export default function BuatPembelian() {
             <Card className="p-5">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-neutral-900">Pembayaran awal</h2>
-                <button
-                  type="button"
-                  onClick={() => setPayAll((v) => !v)}
-                  className={cn(
-                    "text-xs font-semibold transition-colors",
-                    payAll ? "text-neutral-500" : "text-brand-600 hover:text-brand-700"
-                  )}
-                >
-                  {payAll ? "Bayar sebagian" : "Bayar sebagian"}
-                </button>
+                {total > 0 && (
+                  <span className={sisaUtang > 0 ? PILL_CLASS.amber : PILL_CLASS.green}>
+                    {payment <= 0 ? "Belum dibayar" : sisaUtang > 0 ? "Bayar sebagian" : "Lunas"}
+                  </span>
+                )}
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
@@ -331,10 +315,9 @@ export default function BuatPembelian() {
                       type="number"
                       min={0}
                       max={total}
-                      value={payAll ? total : initialPayment}
-                      disabled={payAll}
+                      value={initialPayment}
                       onChange={(e) => setInitialPayment(Math.max(0, Math.min(total, Number(e.target.value))))}
-                      className="h-10 w-full rounded-lg border border-neutral-200 bg-white pl-8 pr-3 text-xs tabular-nums text-neutral-900 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15 disabled:bg-neutral-50 disabled:text-neutral-400"
+                      className="h-10 w-full rounded-lg border border-neutral-200 bg-white pl-8 pr-3 text-xs tabular-nums text-neutral-900 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15"
                     />
                   </div>
                 </div>
@@ -345,11 +328,11 @@ export default function BuatPembelian() {
                   onChange={(e) => setPaymentMethod(e.target.value)}
                 />
               </div>
-              <div className="mt-4">
-                <label className="mb-1.5 block text-xs font-semibold text-neutral-900">
-                  Jatuh tempo sisa pembayaran *
-                </label>
-                <div className="relative max-w-xs">
+              <div className="mt-4 grid items-start gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-neutral-900">
+                    Jatuh tempo sisa pembayaran *
+                  </label>
                   <input
                     type="date"
                     value={dueDate}
@@ -357,7 +340,7 @@ export default function BuatPembelian() {
                     className="h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-xs text-neutral-900 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15"
                   />
                 </div>
-                <p className="mt-1.5 text-[11px] text-neutral-400">
+                <p className="text-[11px] leading-relaxed text-neutral-500 sm:pt-6">
                   Tempo 7 hari sejak tanggal pembelian. Sisa utang dicatat ke pemasok.
                 </p>
               </div>
@@ -374,42 +357,38 @@ export default function BuatPembelian() {
                   <span className="text-neutral-500">
                     Subtotal · {items.reduce((s, i) => s + i.qty, 0)} pcs
                   </span>
-                  <span className="tabular-nums text-neutral-700">{formatRupiah(subtotal)}</span>
+                  <span className={cn(MONO, "text-neutral-700")}>{formatRupiah(subtotal)}</span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-neutral-500">Biaya tambahan</span>
-                  <span className="tabular-nums text-neutral-400">{formatRupiah(additionalCost)}</span>
+                  <span className={cn(MONO, "text-neutral-700")}>{formatRupiah(additionalCost)}</span>
                 </div>
                 <div className="border-t border-neutral-100 pt-2.5">
                   <div className="flex items-center justify-between text-sm font-bold text-neutral-900">
                     <span>Total pembelian</span>
-                    <span className="tabular-nums">{formatRupiah(total)}</span>
+                    <span className={MONO}>{formatRupiah(total)}</span>
                   </div>
                 </div>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-neutral-500">Pembayaran awal</span>
-                  <span className="tabular-nums text-neutral-700">{formatRupiah(payment)}</span>
+                  <span className={cn(MONO, "text-neutral-700")}>{formatRupiah(payment)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm font-semibold">
                   <span className="text-neutral-900">Sisa utang</span>
-                  <span className={cn("tabular-nums", sisaUtang > 0 ? "text-red-600" : "text-brand-600")}>
+                  <span className={cn(MONO, sisaUtang > 0 ? "text-amber-700" : "text-brand-700")}>
                     {formatRupiah(sisaUtang > 0 ? sisaUtang : 0)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-neutral-400">Jatuh tempo</span>
-                  <span className="text-neutral-600">{formatDate(dueDate)}</span>
+                  <span className={cn(MONO, "text-neutral-700")}>{formatDateShort(dueDate)}</span>
                 </div>
               </div>
 
-              {items.length === 0 && (
-                <div className="mt-4 flex items-start gap-2 rounded-lg bg-brand-50 px-3 py-2.5 text-xs text-brand-700">
-                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>
-                    Belum ada barang diterima. Stok tidak bertambah saat pembelian disimpan.
-                  </span>
-                </div>
-              )}
+              <div className="mt-4 flex items-start gap-2 rounded-lg bg-brand-50 px-3 py-2.5 text-xs text-brand-700">
+                <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                <span>Belum ada barang diterima. Stok tidak bertambah saat pembelian disimpan.</span>
+              </div>
             </Card>
 
             {/* Catatan */}
@@ -432,7 +411,7 @@ export default function BuatPembelian() {
         </div>
 
         {/* Footer actions */}
-        <div className="flex items-center justify-between rounded-xl border border-neutral-200 bg-white px-5 py-4 shadow-sm">
+        <div className="mt-5 flex items-center justify-between rounded-xl border border-neutral-200 bg-white px-5 py-4 shadow-sm">
           <div>
             <p className="text-sm font-semibold text-neutral-900">Siap mencatat pembelian?</p>
             <p className="text-[11px] text-neutral-400">
@@ -447,14 +426,15 @@ export default function BuatPembelian() {
               fullWidth={false}
               disabled={!canSave}
               loading={saving}
-              onClick={() => handleSave(false)}
+              onClick={handleSave}
               className="gap-1.5"
             >
-              + Simpan pembelian
+              <Plus className="h-4 w-4" aria-hidden />
+              Simpan pembelian
             </Button>
           </div>
         </div>
       </div>
-    </DashboardLayout>
+    </AdminShell>
   );
 }

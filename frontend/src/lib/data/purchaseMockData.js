@@ -16,6 +16,17 @@ export const PAYMENT_METHODS = [
   { value: "cek", label: "Cek / Giro" },
 ];
 
+// TODO: ganti dengan agregat dari API. Mock hanya berisi 3 faktur, jadi angka ringkasan di sini statis.
+export const PURCHASE_SUMMARY = {
+  monthTotal: 12840000,
+  monthCount: 18,
+  unfinishedCount: 3,
+  debtTotal: 3240000,
+  debtCount: 5,
+  dueSoonTotal: 1540000,
+  dueSoonCount: 2,
+};
+
 export function getPurchaseStatus(status) {
   const map = {
     belum_diterima: { key: "belum_diterima", label: "Belum diterima", variant: "warning" },
@@ -132,9 +143,9 @@ export const INITIAL_PURCHASES = [
         productName: "Mie Goreng Instan",
         sku: "BRG-008",
         unit: "karton",
-        qty: 30,
+        qty: 28,
         qtyReceived: 0,
-        buyPrice: 37600,
+        buyPrice: 40000,
       },
     ],
     receptions: [],
