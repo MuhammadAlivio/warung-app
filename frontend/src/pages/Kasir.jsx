@@ -30,8 +30,8 @@ function KasirContent() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [method, setMethod] = useState("Tunai");
   const [cash, setCash] = useState(0);
-  const [printReceipt, setPrintReceipt] = useState(true);
-  const [printInvoice, setPrintInvoice] = useState(false);
+  // Dokumen yang dicetak saat checkout: hanya satu — "receipt" (struk) atau "invoice" (faktur A4)
+  const [selectedPrintDoc, setSelectedPrintDoc] = useState("receipt");
   const [error, setError] = useState("");
   const [done, setDone] = useState(null);
 
@@ -60,17 +60,14 @@ function KasirContent() {
       total: cart.total, paid: paidValue, cancelled: false,
       cash: cashValue, change: Math.max(cashValue - cart.total, 0),
       payments: paidValue > 0 ? [{ date: now, method, amount: paidValue, note: "Pembayaran awal" }] : [],
-      history: [], printReceipt, printInvoice,
+      history: [], printDoc: selectedPrintDoc,
     };
     addTransaction(tx);
     if (paidValue > 0)
       addEntry({ type: "masuk", category: "Penjualan", amount: paidValue, date: toInputDate(now), description: `Penjualan #${tx.no}`, createdBy: "Kasir" });
     adjustStock(Object.fromEntries(tx.items.map((i) => [i.id, -i.qty])));
     setDone(tx);
-    setTimeout(() => {
-      if (printReceipt) printDoc("receipt");
-      if (printInvoice) printDoc("invoice");
-    }, 400);
+    setTimeout(() => printDoc(tx.printDoc), 400);
   };
 
   const pay = () => {
@@ -136,8 +133,7 @@ function KasirContent() {
           <CartPanel
             trxNo={nextNo()} cart={cart} customer={customer} onPickCustomer={() => setPickerOpen(true)}
             method={method} setMethod={setMethod} cash={cash} setCash={(v) => { setCash(v); setError(""); }}
-            printReceipt={printReceipt} setPrintReceipt={setPrintReceipt}
-            printInvoice={printInvoice} setPrintInvoice={setPrintInvoice}
+            selectedPrintDoc={selectedPrintDoc} setSelectedPrintDoc={setSelectedPrintDoc}
             change={change} remaining={remaining} error={error} onPay={pay} onSave={save}
           />
         </div>

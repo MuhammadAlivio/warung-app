@@ -5,6 +5,10 @@ import { formatRupiah } from "../../utils/pos";
 
 const METHODS = ["Tunai", "TF"];
 const QUICK_CASH = [10000, 20000, 50000, 100000];
+const PRINT_DOCS = [
+  { value: "receipt", label: "Cetak struk" },
+  { value: "invoice", label: "Cetak faktur" },
+];
 
 function Toggle({ active, onClick, children }) {
   return (
@@ -19,9 +23,23 @@ function Toggle({ active, onClick, children }) {
   );
 }
 
+/** Pilihan tunggal (radio native → keyboard ↑↓←→ & pembaca layar bekerja). Tampil seperti tombol Toggle. */
+function DocOption({ value, checked, onChange, children }) {
+  return (
+    <label
+      className={cn("flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors focus-within:ring-4 focus-within:ring-brand-600/20",
+        checked ? "border-transparent bg-brand-50 text-brand-700" : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50")}
+    >
+      <input type="radio" name="print-doc" value={value} checked={checked} onChange={() => onChange(value)} className="sr-only" />
+      {checked && <Check className="h-3.5 w-3.5" aria-hidden />}
+      {children}
+    </label>
+  );
+}
+
 export default function CartPanel({
   trxNo, cart, customer, onPickCustomer, method, setMethod, cash, setCash,
-  printReceipt, setPrintReceipt, printInvoice, setPrintInvoice,
+  selectedPrintDoc, setSelectedPrintDoc,
   change, remaining, error, onPay, onSave,
 }) {
   const empty = cart.items.length === 0;
@@ -97,10 +115,14 @@ export default function CartPanel({
         <span className="font-mono">{formatRupiah(short ? remaining : change)}</span>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <Toggle active={printReceipt} onClick={() => setPrintReceipt(!printReceipt)}>Cetak struk</Toggle>
-        <Toggle active={printInvoice} onClick={() => setPrintInvoice(!printInvoice)}>Cetak faktur</Toggle>
-      </div>
+      <fieldset className="mt-3">
+        <legend className="sr-only">Dokumen yang dicetak</legend>
+        <div className="grid grid-cols-2 gap-2">
+          {PRINT_DOCS.map((d) => (
+            <DocOption key={d.value} value={d.value} checked={selectedPrintDoc === d.value} onChange={setSelectedPrintDoc}>{d.label}</DocOption>
+          ))}
+        </div>
+      </fieldset>
 
       <Button className="mt-3" onClick={onPay} disabled={empty}><Check className="h-4 w-4" aria-hidden /> Bayar</Button>
       <button type="button" onClick={onSave} disabled={empty} className="mt-3 self-start text-xs font-semibold text-brand-600 hover:underline disabled:opacity-40">

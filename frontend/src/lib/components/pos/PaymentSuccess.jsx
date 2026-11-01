@@ -1,16 +1,35 @@
-import { Check, FileText, History, Plus, Printer } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, History, Plus, Printer } from "lucide-react";
 import { Badge, Button, Card } from "../ui";
+import { cn } from "../../utils/cn";
 import { formatRupiah, formatTanggal, printDoc } from "../../utils/pos";
 import { remainingOf, statusOf, STATUS_VARIANT, unitsOf } from "../../utils/transaction";
 import ReceiptPreview from "./ReceiptPreview";
-import InvoiceDocument from "./InvoiceDocument";
+import InvoiceDocument, { InvoicePreview } from "./InvoiceDocument";
 
 const Row = ({ l, r }) => (
   <div className="flex justify-between py-1.5 text-sm"><span className="text-neutral-500">{l}</span><span className="font-mono text-neutral-900">{r}</span></div>
 );
 
+const TABS = [
+  { id: "receipt", label: "Struk", title: "struk" },
+  { id: "invoice", label: "Faktur", title: "faktur" },
+];
+
+/**
+ * Konfirmasi pembayaran. Pratinjau yang tampil pertama mengikuti pilihan dokumen saat checkout (`tx.printDoc`):
+ *   "receipt" → <ReceiptPreview /> (struk thermal) · "invoice" → <InvoicePreview /> (faktur A4).
+ * Pengguna tetap bisa berpindah dokumen lewat tab; tombol cetak mengikuti tab yang aktif.
+ */
 export default function PaymentSuccess({ tx, onNew, onHistory }) {
   const status = statusOf(tx);
+  const initial = tx.printDoc === "invoice" ? "invoice" : "receipt";
+  const [view, setView] = useState(initial);
+  useEffect(() => setView(initial), [tx.no, initial]);
+
+  const active = TABS.find((t) => t.id === view);
+  const isInvoice = view === "invoice";
+
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
       <div>
@@ -43,7 +62,7 @@ export default function PaymentSuccess({ tx, onNew, onHistory }) {
             <Row l="Sisa tagihan" r={formatRupiah(remainingOf(tx))} />
           </div>
           <div className="flex justify-between rounded-lg bg-brand-50 px-4 py-3 text-sm font-semibold text-brand-900">
-            <span>Kembalian</span><span className="font-mono">{formatRupiah(tx.change ?? 0)}</span>
+            <span>Kembalian</span><span className="font-mono text-brand-700">{formatRupiah(tx.change ?? 0)}</span>
           </div>
 
           <div className="mt-5 border-t border-neutral-100 pt-4">
@@ -63,25 +82,39 @@ export default function PaymentSuccess({ tx, onNew, onHistory }) {
       </div>
 
       <Card className="h-fit p-5">
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-bold">Pratinjau struk</h2>
-          <Badge>Siap dicetak</Badge>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-bold text-neutral-900">Pratinjau {active.title}</h2>
+          <div className="flex items-center gap-2">
+            <div role="tablist" aria-label="Jenis dokumen" className="flex rounded-lg bg-neutral-100 p-0.5 text-[11px] font-semibold">
+              {TABS.map((t) => (
+                <button
+                  key={t.id} type="button" role="tab" aria-selected={view === t.id} onClick={() => setView(t.id)}
+                  className={cn("rounded-md px-2.5 py-1 transition-colors", view === t.id ? "bg-white text-brand-700 shadow-sm" : "text-neutral-500 hover:text-neutral-700")}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <Badge>Siap dicetak</Badge>
+          </div>
         </div>
-        {tx.printReceipt && (
-          <div className="mt-4 flex items-center gap-2 rounded-lg bg-brand-50 px-4 py-3 text-xs font-semibold text-brand-900">
-            <FileText className="h-4 w-4" aria-hidden /> Cetak struk dipilih sebelum pembayaran
-          </div>
-        )}
-        <div className="mt-4 rounded-lg border border-neutral-100 bg-neutral-50 p-5"><ReceiptPreview tx={tx} /></div>
+
+        <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-100 p-5">
+          {isInvoice ? <InvoicePreview tx={tx} /> : <ReceiptPreview tx={tx} />}
+        </div>
+
         <div className="mt-4 flex items-center justify-between gap-3">
-          <div><p className="text-sm font-semibold">Dokumen siap dicetak</p><p className="text-xs text-neutral-500">Periksa printer sebelum mencetak ulang.</p></div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" fullWidth={false} onClick={() => printDoc("invoice")}>Cetak faktur</Button>
-            <Button size="sm" fullWidth={false} onClick={() => printDoc("receipt")}><Printer className="h-4 w-4" aria-hidden /> Cetak ulang struk</Button>
+          <div>
+            <p className="text-sm font-semibold text-neutral-900">Dokumen siap dicetak</p>
+            <p className="text-xs text-neutral-500">Periksa printer sebelum mencetak ulang.</p>
           </div>
+          <Button fullWidth={false} onClick={() => printDoc(isInvoice ? "invoice" : "receipt")}>
+            <Printer className="h-4 w-4" aria-hidden /> Cetak ulang {active.title}
+          </Button>
         </div>
       </Card>
 
+      {/* Area cetak (tersembunyi di layar) */}
       <div className="print-receipt hidden"><ReceiptPreview tx={tx} /></div>
       <InvoiceDocument tx={tx} />
     </div>

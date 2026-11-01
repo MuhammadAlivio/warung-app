@@ -14,4 +14,7 @@
   body[data-print] .print-receipt, body[data-print] .print-invoice { position: absolute; left: 0; top: 0; }
   .print-receipt { page: receipt; width: 58mm; }
   .print-invoice { page: invoice; width: 100%; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  /* Faktur panjang: kepala tabel berulang tiap halaman, baris & blok total tidak terpotong */
+  .print-invoice thead { display: table-header-group; }
+  .print-invoice tr, .print-invoice .invoice-keep { break-inside: avoid; }
 }

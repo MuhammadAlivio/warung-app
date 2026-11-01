@@ -11,6 +11,7 @@ export default {
           100: "#d5e8dd",
           600: "#3b7658",
           700: "#2f6048",
+          800: "#237453", // hijau tua pada desain faktur/Kasir (sampel Figma)
           900: "#1f3a2d",
         },
       },
