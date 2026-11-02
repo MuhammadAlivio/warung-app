@@ -4,10 +4,7 @@ import { Info, Timer } from "lucide-react";
 import { Button, OtpInput } from "../ui";
 import { formatCountdown, useTotpCountdown } from "../../hooks/useTotpCountdown";
 import { otpSchema } from "../../schemas/auth";
-
-// TODO: ganti dengan panggilan API. Kode "000000" ditolak untuk demo state error.
-const fakeActivate2fa = ({ otp }) =>
-  new Promise((resolve, reject) => setTimeout(() => (otp === "000000" ? reject(new Error("invalid")) : resolve()), 800));
+import { api } from "../../api";
 
 export default function StepVerifyCode({ onBack, onSuccess }) {
   const secondsLeft = useTotpCountdown(30);
@@ -21,10 +18,10 @@ export default function StepVerifyCode({ onBack, onSuccess }) {
 
   const onSubmit = async (values) => {
     try {
-      await fakeActivate2fa(values);
-      onSuccess();
-    } catch {
-      setError("otp", { message: "Kode salah atau kedaluwarsa. Coba lagi." });
+      const res = await api("/api/2fa/confirm", { method: "POST", body: values });
+      onSuccess(res);
+    } catch (err) {
+      setError("otp", { message: err.message });
       setValue("otp", "");
     }
   };

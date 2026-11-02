@@ -6,12 +6,13 @@ import AuthLayout from "../lib/components/layout/AuthLayout";
 import { Badge, Button, Card, Input, PasswordInput } from "../lib/components/ui";
 import { ADMIN_AUTH_COPY } from "../lib/config/authCopy";
 import { adminLoginSchema } from "../lib/schemas/auth";
-
-// TODO: ganti dengan panggilan API sungguhan
-const fakeAdminLogin = (values) => new Promise((resolve) => setTimeout(() => resolve(values), 800));
+import { api } from "../lib/api";
+import { homeFor } from "../lib/utils/auth";
+import { useAuth } from "../lib/stores/AuthContext";
 
 export default function AdminLoginPage() {
   const navigate = useNavigate();
+  const { setUser } = useAuth();
   const {
     register,
     handleSubmit,
@@ -24,10 +25,14 @@ export default function AdminLoginPage() {
 
   const onSubmit = async (values) => {
     try {
-      await fakeAdminLogin(values);
-      navigate("/admin/2fa"); // 2FA wajib setelah password benar
-    } catch {
-      setError("root", { message: "Email atau password salah" });
+      const res = await api("/api/login", { method: "POST", body: { ...values, admin_only: true } });
+      if (res.needs_2fa) navigate(res.needs_setup ? "/admin/2fa/setup" : "/admin/2fa"); // 2FA wajib setelah password benar
+      else {
+        setUser(res.user);
+        navigate(homeFor(res.user));
+      }
+    } catch (err) {
+      setError("root", { message: err.message });
     }
   };
 
@@ -77,6 +82,9 @@ export default function AdminLoginPage() {
         <p className="mt-3 text-[11px] text-neutral-500">
           Khusus administrator. Verifikasi 2FA wajib setelah password.
         </p>
+        <Link to="/login" className="mt-3 inline-block text-xs font-semibold text-brand-700 hover:underline">
+          Bukan admin? Masuk sebagai karyawan
+        </Link>
       </Card>
     </AuthLayout>
   );

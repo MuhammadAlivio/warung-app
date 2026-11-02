@@ -1,6 +1,6 @@
 
 import { useState } from "react";
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink, useNavigate } from "react-router-dom";
 import {
   BarChart3,
   ChevronDown,
@@ -16,6 +16,9 @@ import {
 } from "lucide-react";
 import { cn } from "../../utils/cn";
 import ChatbotWidget from "../chatbot/ChatbotWidget";
+import { useAuth } from "../../stores/AuthContext";
+
+const ROLE_LABEL = { admin: "Administrator", kasir: "Kasir" };
 
 const NAV = [
   {
@@ -32,12 +35,14 @@ const NAV = [
   },
   {
     id: "pembelian",
+    adminOnly: true,
     label: "Pembelian & Barang Masuk",
     icon: PackagePlus,
     to: "/admin/pembelian",
   },
   {
     id: "keuangan",
+    adminOnly: true,
     label: "Keuangan",
     icon: BarChart3,
     to: "/admin/keuangan",
@@ -94,15 +99,22 @@ function Breadcrumb({ items }) {
 export default function DashboardLayout({
   breadcrumb,
   badges = {},
-  user = {
-    name: "Dina Anggraini",
-    role: "Pemilik toko",
-  },
+  user: userProp,
   onLogout,
   topbarActions,
   children,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const navigate = useNavigate();
+  const { user: authUser, logout } = useAuth();
+  const user = userProp ?? (authUser && { name: authUser.name, role: ROLE_LABEL[authUser.role] });
+  const navItems = NAV.filter((item) => !item.adminOnly || authUser?.role === "admin");
+
+  const handleLogout = async () => {
+    await logout();
+    if (onLogout) onLogout();
+    else navigate("/login");
+  };
 
   // Inisial untuk avatar pada dropdown.
   const initials = (user?.name || "Pengguna")
@@ -154,7 +166,7 @@ export default function DashboardLayout({
           aria-label="Menu utama"
           className="flex-1 space-y-1"
         >
-          {NAV.map(({ id, label, icon: Icon, to }) =>
+          {navItems.map(({ id, label, icon: Icon, to }) =>
             to ? (
               <NavLink
                 key={id}
@@ -315,7 +327,7 @@ export default function DashboardLayout({
                       role="menuitem"
                       onClick={() => {
                         setMenuOpen(false);
-                        onLogout?.();
+                        handleLogout();
                       }}
                       className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-red-600 transition-colors hover:bg-red-50"
                     >

@@ -4,12 +4,13 @@ import { Link, useNavigate } from "react-router-dom";
 import AuthLayout from "../lib/components/layout/AuthLayout";
 import { Button, Card, Checkbox, Input, PasswordInput } from "../lib/components/ui";
 import { loginSchema } from "../lib/schemas/auth";
-
-// TODO: ganti dengan panggilan API sungguhan
-const fakeLogin = (values) => new Promise((resolve) => setTimeout(() => resolve(values), 800));
+import { api } from "../lib/api";
+import { homeFor } from "../lib/utils/auth";
+import { useAuth } from "../lib/stores/AuthContext";
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const { setUser } = useAuth();
   const {
     register,
     handleSubmit,
@@ -22,10 +23,14 @@ export default function LoginPage() {
 
   const onSubmit = async (values) => {
     try {
-      await fakeLogin(values);
-      navigate("/"); // TODO: arahkan ke dashboard
-    } catch {
-      setError("root", { message: "Email atau password salah" });
+      const res = await api("/api/login", { method: "POST", body: values });
+      if (res.needs_2fa) navigate(res.needs_setup ? "/admin/2fa/setup" : "/admin/2fa"); // admin wajib 2FA
+      else {
+        setUser(res.user);
+        navigate(homeFor(res.user));
+      }
+    } catch (err) {
+      setError("root", { message: err.message });
     }
   };
 
@@ -75,6 +80,9 @@ export default function LoginPage() {
         </form>
 
         <p className="mt-3 text-[11px] text-neutral-500">Masuk untuk melanjutkan aktivitas toko Anda.</p>
+        <Link to="/admin/login" className="mt-3 block text-xs font-semibold text-brand-700 hover:underline">
+          Pemilik toko / admin? Masuk sebagai admin
+        </Link>
         <Link to="/register" className="mt-3 inline-block text-xs font-semibold text-brand-700 hover:underline">
           Belum punya akun? Daftar
         </Link>

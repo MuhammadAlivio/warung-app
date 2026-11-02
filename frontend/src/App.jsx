@@ -1,4 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import RequireAuth from "./lib/components/auth/RequireAuth";
+import { AuthProvider } from "./lib/stores/AuthContext";
 import AdminLoginPage from "./pages/LoginAdmin";
 import ForgotPasswordPage from "./pages/LupaPassword";
 import LoginPage from "./pages/Login";
@@ -25,6 +27,7 @@ import PengaturanProfilToko from "./pages/PengaturanProfilToko";
 export default function App() {
   return (
     <BrowserRouter>
+      <AuthProvider>
       <StockProvider>
         <PurchaseProvider>
           <FinanceProvider>
@@ -40,30 +43,36 @@ export default function App() {
                   <Route path="/admin/2fa" element={<TwoFactorVerifyPage />} />
                   <Route path="/admin/2fa/setup" element={<TwoFactorSetupWizard />} />
 
-                  {/* Stok Barang */}
-                  <Route path="/admin/stok" element={<StockPage />} />
+                  {/* Admin & kasir (harus login) */}
+                  <Route element={<RequireAuth />}>
+                    {/* Stok Barang */}
+                    <Route path="/admin/stok" element={<StockPage />} />
 
-                  {/* Kasir */}
-                  <Route path="/admin/kasir" element={<Kasir />} />
+                    {/* Kasir */}
+                    <Route path="/admin/kasir" element={<Kasir />} />
 
-                  {/* Riwayat Transaksi */}
-                  <Route path="/admin/riwayat-transaksi" element={<RiwayatTransaksi />} />
-                  <Route path="/admin/riwayat-transaksi/:id/edit" element={<EditTransaksi />} />
+                    {/* Riwayat Transaksi */}
+                    <Route path="/admin/riwayat-transaksi" element={<RiwayatTransaksi />} />
+                    <Route path="/admin/riwayat-transaksi/:id/edit" element={<EditTransaksi />} />
 
-                  {/* Daftar Pelanggan */}
-                  <Route path="/admin/pelanggan" element={<DaftarPelanggan />} />
+                    {/* Daftar Pelanggan */}
+                    <Route path="/admin/pelanggan" element={<DaftarPelanggan />} />
+                  </Route>
 
-                  {/* Pembelian & Barang Masuk */}
-                  <Route path="/admin/pembelian" element={<PembelianBarangMasuk />} />
-                  <Route path="/admin/pembelian/buat" element={<BuatPembelian />} />
-                  <Route path="/admin/pembelian/:id" element={<DetailPembelian />} />
-                  <Route path="/admin/pembelian/:id/terima" element={<TerimaBarang />} />
+                  {/* Khusus admin (matriks hak akses PRD) */}
+                  <Route element={<RequireAuth roles={["admin"]} />}>
+                    {/* Pembelian & Barang Masuk */}
+                    <Route path="/admin/pembelian" element={<PembelianBarangMasuk />} />
+                    <Route path="/admin/pembelian/buat" element={<BuatPembelian />} />
+                    <Route path="/admin/pembelian/:id" element={<DetailPembelian />} />
+                    <Route path="/admin/pembelian/:id/terima" element={<TerimaBarang />} />
 
-                  {/* Keuangan */}
-                  <Route path="/admin/keuangan" element={<KeuanganPage />} />
+                    {/* Keuangan */}
+                    <Route path="/admin/keuangan" element={<KeuanganPage />} />
 
-                  {/* Pengaturan */}
-                  <Route path="/admin/pengaturan/profil-toko" element={<PengaturanProfilToko />} />
+                    {/* Pengaturan */}
+                    <Route path="/admin/pengaturan/profil-toko" element={<PengaturanProfilToko />} />
+                  </Route>
 
                   <Route path="*" element={<Navigate to="/login" replace />} />
                 </Routes>
@@ -72,6 +81,7 @@ export default function App() {
           </FinanceProvider>
         </PurchaseProvider>
       </StockProvider>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

@@ -1,20 +1,25 @@
+import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Link, useNavigate } from "react-router-dom";
 import { Timer } from "lucide-react";
 import AuthLayout from "../lib/components/layout/AuthLayout";
-import { Button, Card, OtpInput } from "../lib/components/ui";
+import { Button, Card, Input, OtpInput } from "../lib/components/ui";
 import { formatCountdown, useTotpCountdown } from "../lib/hooks/useTotpCountdown";
 import { ADMIN_AUTH_COPY } from "../lib/config/authCopy";
 import { otpSchema } from "../lib/schemas/auth";
-
-// TODO: ganti dengan panggilan API sungguhan. Di sini kode "000000" ditolak untuk demo state error.
-const fakeVerifyOtp = ({ otp }) =>
-  new Promise((resolve, reject) => setTimeout(() => (otp === "000000" ? reject(new Error("invalid")) : resolve()), 800));
+import { api } from "../lib/api";
+import { homeFor } from "../lib/utils/auth";
+import { useAuth } from "../lib/stores/AuthContext";
 
 export default function TwoFactorVerifyPage() {
   const navigate = useNavigate();
+  const { setUser } = useAuth();
   const secondsLeft = useTotpCountdown(30);
+  const [useRecovery, setUseRecovery] = useState(false);
+  const [recoveryCode, setRecoveryCode] = useState("");
+  const [recoveryError, setRecoveryError] = useState(null);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
 
   const {
     control,
@@ -29,11 +34,27 @@ export default function TwoFactorVerifyPage() {
 
   const onSubmit = async (values) => {
     try {
-      await fakeVerifyOtp(values);
-      navigate("/admin"); // TODO: dashboard admin
-    } catch {
-      setError("otp", { message: "Kode salah atau kedaluwarsa. Coba lagi." });
+      const res = await api("/api/2fa/verify", { method: "POST", body: values });
+      setUser(res.user);
+      navigate(homeFor(res.user));
+    } catch (err) {
+      setError("otp", { message: err.message });
       setValue("otp", "");
+    }
+  };
+
+  const onSubmitRecovery = async (e) => {
+    e.preventDefault();
+    setRecoveryError(null);
+    setRecoveryLoading(true);
+    try {
+      const res = await api("/api/2fa/verify", { method: "POST", body: { recovery_code: recoveryCode } });
+      setUser(res.user);
+      navigate(homeFor(res.user));
+    } catch (err) {
+      setRecoveryError(err.message);
+    } finally {
+      setRecoveryLoading(false);
     }
   };
 
@@ -45,6 +66,21 @@ export default function TwoFactorVerifyPage() {
           Buka Google Authenticator atau aplikasi TOTP Anda, lalu masukkan kode untuk Warung.
         </p>
 
+        {useRecovery ? (
+          <form onSubmit={onSubmitRecovery} noValidate className="space-y-4">
+            <Input
+              label="Kode pemulihan"
+              placeholder="xxxxx-xxxxx"
+              autoComplete="off"
+              value={recoveryCode}
+              onChange={(e) => setRecoveryCode(e.target.value)}
+              error={recoveryError ?? undefined}
+            />
+            <Button type="submit" loading={recoveryLoading}>
+              Verifikasi
+            </Button>
+          </form>
+        ) : (
         <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
           <Controller
             name="otp"
@@ -70,6 +106,15 @@ export default function TwoFactorVerifyPage() {
             Verifikasi
           </Button>
         </form>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setUseRecovery((v) => !v)}
+          className="mt-4 block w-full text-center text-xs font-semibold text-brand-700 hover:underline"
+        >
+          {useRecovery ? "Pakai kode dari aplikasi authenticator" : "Pakai kode pemulihan"}
+        </button>
 
         <Link
           to="/admin/login"
