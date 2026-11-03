@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\ActivityLogger;
 use App\Services\LoginGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -11,7 +12,7 @@ use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
-    public function __construct(private LoginGuard $guard) {}
+    public function __construct(private LoginGuard $guard, private ActivityLogger $logger) {}
 
     public function login(Request $request): JsonResponse
     {
@@ -76,6 +77,8 @@ class AuthController extends Controller
 
     public function logout(Request $request): JsonResponse
     {
+        $this->logger->record($request, 'auth', 'logout', "{$request->user()->name} keluar dari aplikasi");
+
         Auth::guard('web')->logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();

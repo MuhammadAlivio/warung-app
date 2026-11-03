@@ -9,7 +9,7 @@ const empty = { name: "", phone: "", address: "", note: "" };
 
 /** Tambah (customer kosong) & Edit (customer terisi). */
 export default function CustomerFormModal({ open, onClose, onSubmit, customer }) {
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm({
+  const { register, handleSubmit, reset, setError, formState: { errors, isSubmitting } } = useForm({
     resolver: zodResolver(customerSchema),
     defaultValues: empty,
   });
@@ -19,8 +19,12 @@ export default function CustomerFormModal({ open, onClose, onSubmit, customer })
   }, [open, customer, reset]);
 
   const submit = async (values) => {
-    await onSubmit(values);
-    onClose();
+    try {
+      await onSubmit(values);
+      onClose();
+    } catch (err) {
+      setError("root", { message: err.data?.errors ? Object.values(err.data.errors).flat()[0] : err.message });
+    }
   };
 
   return (
@@ -43,6 +47,11 @@ export default function CustomerFormModal({ open, onClose, onSubmit, customer })
           />
           <Textarea label="Alamat (opsional)" placeholder="Nama jalan, nomor rumah, dan kota" error={errors.address?.message} {...register("address")} />
           <Textarea label="Catatan (opsional)" placeholder="Tambahkan informasi lain tentang pelanggan" error={errors.note?.message} {...register("note")} />
+          {errors.root && (
+            <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
+              {errors.root.message}
+            </p>
+          )}
           <div className="flex items-start gap-2 rounded-lg border border-neutral-100 bg-neutral-50 p-3 text-xs text-neutral-500">
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" aria-hidden />
             Tagihan pelanggan akan tercatat otomatis dari transaksi. Tidak perlu memasukkan saldo awal.

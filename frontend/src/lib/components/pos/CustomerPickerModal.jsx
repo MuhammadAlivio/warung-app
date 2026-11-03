@@ -55,7 +55,7 @@ export default function CustomerPickerModal({ open, onClose, selectedId, onSelec
 
       <CustomerFormModal
         open={open && adding} onClose={() => setAdding(false)}
-        onSubmit={(v) => { const c = addCustomer(v); onSelect(c); setAdding(false); onClose(); }}
+        onSubmit={async (v) => { const c = await addCustomer(v); onSelect(c); setAdding(false); onClose(); }}
       />
     </>
   );

@@ -170,7 +170,7 @@ function DaftarPelangganContent() {
                             <CustomerInspection
                               customer={c}
                               tx={s.lastUnpaid ?? s.last}
-                              onOpenHistory={() => navigate("/admin/riwayat-transaksi", { state: { search: c.name, selectedId: (s.lastUnpaid ?? s.last)?.id } })}
+                              onOpenHistory={() => navigate("/riwayat-transaksi", { state: { search: c.name, selectedId: (s.lastUnpaid ?? s.last)?.id } })}
                             />
                           </td>
                         </tr>
@@ -211,7 +211,15 @@ function DaftarPelangganContent() {
           <Button variant="outline" fullWidth={false} onClick={() => setToDelete(null)}>Batal</Button>
           <Button
             variant="danger" fullWidth={false}
-            onClick={() => { removeCustomer(toDelete.id); setExpandedId((cur) => (cur === toDelete.id ? null : cur)); setToDelete(null); }}
+            onClick={async () => {
+              try {
+                await removeCustomer(toDelete.id);
+                setExpandedId((cur) => (cur === toDelete.id ? null : cur));
+              } catch (err) {
+                window.alert(err.message);
+              }
+              setToDelete(null);
+            }}
           >
             Hapus
           </Button>

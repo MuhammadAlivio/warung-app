@@ -154,7 +154,7 @@ function RiwayatTransaksiContent() {
                 <div className="mt-4 rounded-lg border border-neutral-100 bg-neutral-50 p-4">
                   <h3 className="mb-3 text-sm font-bold">Pengelolaan transaksi</h3>
                   <div className="space-y-2">
-                    <Button variant="outline" onClick={() => navigate(`/admin/riwayat-transaksi/${selected.id}/edit`)}><Pencil className="h-4 w-4" aria-hidden /> Edit transaksi</Button>
+                    <Button variant="outline" onClick={() => navigate(`/riwayat-transaksi/${selected.id}/edit`)}><Pencil className="h-4 w-4" aria-hidden /> Edit transaksi</Button>
                     {remainingOf(selected) > 0 && (
                       <Button variant="outline" onClick={() => setPayOpen(true)}><Wallet className="h-4 w-4" aria-hidden /> Edit pembayaran</Button>
                     )}

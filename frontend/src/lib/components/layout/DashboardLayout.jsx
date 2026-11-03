@@ -8,11 +8,13 @@ import {
   Info,
   LogOut,
   Package,
+  ClipboardList,
   PackagePlus,
   Receipt,
   ShoppingBasket,
   Sprout,
   User,
+  Users,
 } from "lucide-react";
 import { cn } from "../../utils/cn";
 import ChatbotWidget from "../chatbot/ChatbotWidget";
@@ -25,39 +27,52 @@ const NAV = [
     id: "kasir",
     label: "Kasir / POS",
     icon: ShoppingBasket,
-    to: "/admin/kasir",
+    to: "/kasir",
   },
   {
     id: "stok",
     label: "Stok Barang",
     icon: Package,
-    to: "/admin/stok",
+    to: "/stok",
   },
   {
     id: "pembelian",
     adminOnly: true,
     label: "Pembelian & Barang Masuk",
     icon: PackagePlus,
-    to: "/admin/pembelian",
+    to: "/pembelian",
   },
   {
     id: "keuangan",
     adminOnly: true,
     label: "Keuangan",
     icon: BarChart3,
-    to: "/admin/keuangan",
+    to: "/keuangan",
   },
   {
     id: "riwayat",
     label: "Riwayat Transaksi",
     icon: Receipt,
-    to: "/admin/riwayat-transaksi",
+    to: "/riwayat-transaksi",
   },
   {
     id: "pelanggan",
     label: "Daftar Pelanggan",
     icon: User,
-    to: "/admin/pelanggan",
+    to: "/pelanggan",
+  },
+  {
+    id: "karyawan",
+    label: "Daftar Karyawan",
+    icon: Users,
+    to: "/karyawan",
+  },
+  {
+    id: "log-karyawan",
+    adminOnly: true,
+    label: "Log Karyawan",
+    icon: ClipboardList,
+    to: "/log-karyawan",
   },
 ];
 
@@ -145,7 +160,7 @@ export default function DashboardLayout({
       <aside className="fixed inset-y-0 left-0 z-40 flex w-[210px] flex-col overflow-y-auto border-r border-neutral-200 bg-white px-3 py-5">
         {/* LOGO WARUNG */}
         <Link
-          to="/admin/keuangan"
+          to="/keuangan"
           className="mb-8 flex items-center gap-2.5 px-2"
         >
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white">
@@ -308,7 +323,7 @@ export default function DashboardLayout({
 
                     {/* PENGATURAN PROFIL */}
                     <Link
-                      to="/admin/pengaturan/profil-toko"
+                      to="/pengaturan/profil-toko"
                       role="menuitem"
                       onClick={() => setMenuOpen(false)}
                       className="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-neutral-700 transition-colors hover:bg-brand-50 hover:text-brand-700"

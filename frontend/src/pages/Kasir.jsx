@@ -102,7 +102,7 @@ function KasirContent() {
       </header>
 
       {done ? (
-        <PaymentSuccess tx={done} onNew={reset} onHistory={() => navigate("/admin/riwayat-transaksi")} />
+        <PaymentSuccess tx={done} onNew={reset} onHistory={() => navigate("/riwayat-transaksi")} />
       ) : (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
           <section>

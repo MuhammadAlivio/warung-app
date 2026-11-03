@@ -23,6 +23,8 @@ import DetailPembelian from "./pages/DetailPembelian";
 import TerimaBarang from "./pages/TerimaBarang";
 import KeuanganPage from "./pages/Keuangan";
 import PengaturanProfilToko from "./pages/PengaturanProfilToko";
+import DaftarKaryawan from "./pages/DaftarKaryawan";
+import LogKaryawan from "./pages/LogKaryawan";
 
 export default function App() {
   return (
@@ -46,32 +48,38 @@ export default function App() {
                   {/* Admin & kasir (harus login) */}
                   <Route element={<RequireAuth />}>
                     {/* Stok Barang */}
-                    <Route path="/admin/stok" element={<StockPage />} />
+                    <Route path="/stok" element={<StockPage />} />
 
                     {/* Kasir */}
-                    <Route path="/admin/kasir" element={<Kasir />} />
+                    <Route path="/kasir" element={<Kasir />} />
 
                     {/* Riwayat Transaksi */}
-                    <Route path="/admin/riwayat-transaksi" element={<RiwayatTransaksi />} />
-                    <Route path="/admin/riwayat-transaksi/:id/edit" element={<EditTransaksi />} />
+                    <Route path="/riwayat-transaksi" element={<RiwayatTransaksi />} />
+                    <Route path="/riwayat-transaksi/:id/edit" element={<EditTransaksi />} />
 
                     {/* Daftar Pelanggan */}
-                    <Route path="/admin/pelanggan" element={<DaftarPelanggan />} />
+                    <Route path="/pelanggan" element={<DaftarPelanggan />} />
+
+                    {/* Daftar Karyawan: kasir hanya melihat; kelola akun khusus admin */}
+                    <Route path="/karyawan" element={<DaftarKaryawan />} />
                   </Route>
 
                   {/* Khusus admin (matriks hak akses PRD) */}
                   <Route element={<RequireAuth roles={["admin"]} />}>
                     {/* Pembelian & Barang Masuk */}
-                    <Route path="/admin/pembelian" element={<PembelianBarangMasuk />} />
-                    <Route path="/admin/pembelian/buat" element={<BuatPembelian />} />
-                    <Route path="/admin/pembelian/:id" element={<DetailPembelian />} />
-                    <Route path="/admin/pembelian/:id/terima" element={<TerimaBarang />} />
+                    <Route path="/pembelian" element={<PembelianBarangMasuk />} />
+                    <Route path="/pembelian/buat" element={<BuatPembelian />} />
+                    <Route path="/pembelian/:id" element={<DetailPembelian />} />
+                    <Route path="/pembelian/:id/terima" element={<TerimaBarang />} />
 
                     {/* Keuangan */}
-                    <Route path="/admin/keuangan" element={<KeuanganPage />} />
+                    <Route path="/keuangan" element={<KeuanganPage />} />
+
+                    {/* Log aktivitas */}
+                    <Route path="/log-karyawan" element={<LogKaryawan />} />
 
                     {/* Pengaturan */}
-                    <Route path="/admin/pengaturan/profil-toko" element={<PengaturanProfilToko />} />
+                    <Route path="/pengaturan/profil-toko" element={<PengaturanProfilToko />} />
                   </Route>
 
                   <Route path="*" element={<Navigate to="/login" replace />} />

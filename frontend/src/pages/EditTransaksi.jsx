@@ -80,7 +80,7 @@ function EditTransaksiContent() {
     v.items.forEach((i) => { delta[i.id] = (delta[i.id] ?? 0) - i.qty; });
     adjustStock(delta);
     editItems(tx.id, v.items, v.reason.trim());
-    navigate("/admin/riwayat-transaksi", { state: { selectedId: tx.id } });
+    navigate("/riwayat-transaksi", { state: { selectedId: tx.id } });
   };
 
   const swapOptions = catalog.filter((p) => !items.some((i) => i.id === p.id))
@@ -88,7 +88,7 @@ function EditTransaksiContent() {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} noValidate>
-      <button type="button" onClick={() => navigate("/admin/riwayat-transaksi", { state: { selectedId: tx.id } })} className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-brand-600 hover:underline">
+      <button type="button" onClick={() => navigate("/riwayat-transaksi", { state: { selectedId: tx.id } })} className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-brand-600 hover:underline">
         <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Riwayat Transaksi
       </button>
       <div className="flex items-start justify-between">
@@ -204,7 +204,7 @@ function EditTransaksiContent() {
       <Card className="mt-5 flex flex-wrap items-center justify-between gap-3 p-4">
         <p className="text-xs text-neutral-500">Periksa kembali daftar belanja sebelum menyimpan.</p>
         <div className="flex gap-2">
-          <Button type="button" variant="outline" fullWidth={false} onClick={() => navigate("/admin/riwayat-transaksi", { state: { selectedId: tx.id } })}>Batal</Button>
+          <Button type="button" variant="outline" fullWidth={false} onClick={() => navigate("/riwayat-transaksi", { state: { selectedId: tx.id } })}>Batal</Button>
           <Button type="submit" fullWidth={false} loading={isSubmitting} disabled={!isDirty}>Simpan perubahan</Button>
         </div>
       </Card>

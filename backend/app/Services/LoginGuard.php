@@ -44,9 +44,10 @@ class LoginGuard
 
     public function success(User $user, Request $request): void
     {
-        $user->forceFill(['failed_login_attempts' => 0, 'locked_until' => null])->save();
+        $user->forceFill(['failed_login_attempts' => 0, 'locked_until' => null, 'last_login_at' => now()])->save();
 
         $this->log($user, $user->email, 'berhasil', null, $request);
+        app(ActivityLogger::class)->record($request, 'auth', 'login', "{$user->name} masuk ke aplikasi", null, $user);
     }
 
     private function log(?User $user, string $email, string $status, ?string $reason, Request $request): void

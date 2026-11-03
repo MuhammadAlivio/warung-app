@@ -35,7 +35,7 @@ export default function DetailPembelian() {
   const [payOpen, setPayOpen] = useState(false);
 
   const purchase = purchases.find((p) => p.id === id);
-  if (!purchase) return <Navigate to="/admin/pembelian" replace />;
+  if (!purchase) return <Navigate to="/pembelian" replace />;
 
   const supplier = SUPPLIERS.find((s) => s.id === purchase.supplierId);
   const receipt = receiptPill(purchase);
@@ -50,21 +50,21 @@ export default function DetailPembelian() {
   const receptions = purchase.receptions || [];
   const lastReception = receptions.at(-1);
   const pct = totalQty > 0 ? Math.round((totalReceived / totalQty) * 100) : 0;
-  const goReceive = () => navigate(`/admin/pembelian/${purchase.id}/terima`);
+  const goReceive = () => navigate(`/pembelian/${purchase.id}/terima`);
 
   const receiveLabel = isPartial ? "Terima sisa barang" : "Terima barang";
   const [createdDate, createdTime] = (purchase.createdAt || "").split(" ");
 
   return (
     <AdminShell
-      breadcrumb={[{ label: "Ruang kerja" }, { label: "Pembelian & Barang Masuk", href: "/admin/pembelian" }]}
+      breadcrumb={[{ label: "Ruang kerja" }, { label: "Pembelian & Barang Masuk", href: "/pembelian" }]}
     >
       <div className="mx-auto max-w-6xl space-y-5">
         {/* Back + header */}
         <div>
           <button
             type="button"
-            onClick={() => navigate("/admin/pembelian")}
+            onClick={() => navigate("/pembelian")}
             className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-700 hover:underline"
           >
             <ArrowLeft className="h-3.5 w-3.5" aria-hidden />

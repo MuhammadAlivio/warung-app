@@ -98,12 +98,12 @@ export default function BuatPembelian() {
         qtyReceived: 0,
       })),
     });
-    navigate("/admin/pembelian");
+    navigate("/pembelian");
   };
 
   return (
     <AdminShell
-      breadcrumb={[{ label: "Ruang kerja" }, { label: "Pembelian & Barang Masuk", href: "/admin/pembelian" }]}
+      breadcrumb={[{ label: "Ruang kerja" }, { label: "Pembelian & Barang Masuk", href: "/pembelian" }]}
     >
       <div className="mx-auto max-w-6xl pb-16">
         {/* Header */}
@@ -111,7 +111,7 @@ export default function BuatPembelian() {
           <div>
             <button
               type="button"
-              onClick={() => navigate("/admin/pembelian")}
+              onClick={() => navigate("/pembelian")}
               className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-700 hover:underline"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
@@ -419,7 +419,7 @@ export default function BuatPembelian() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" fullWidth={false} onClick={() => navigate("/admin/pembelian")}>
+            <Button variant="outline" fullWidth={false} onClick={() => navigate("/pembelian")}>
               Batal
             </Button>
             <Button

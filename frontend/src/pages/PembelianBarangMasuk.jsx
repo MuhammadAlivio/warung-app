@@ -72,7 +72,7 @@ export default function PembelianBarangMasuk() {
             </h1>
             <p className="mt-1 text-xs text-neutral-500">Catat faktur, terima barang, dan pantau jatuh tempo.</p>
           </div>
-          <Button size="sm" fullWidth={false} className="h-10" onClick={() => navigate("/admin/pembelian/buat")}>
+          <Button size="sm" fullWidth={false} className="h-10" onClick={() => navigate("/pembelian/buat")}>
             <Plus className="h-4 w-4" aria-hidden />
             Buat pembelian
           </Button>
@@ -248,7 +248,7 @@ function SelectedInvoice({ purchase: p, navigate, addPayment }) {
       <Card className="p-5 lg:col-span-3">
         <div className="flex items-center justify-between">
           <Link
-            to={`/admin/pembelian/${p.id}`}
+            to={`/pembelian/${p.id}`}
             className="text-sm font-bold text-neutral-900 hover:underline"
             aria-label={`Lihat detail ${p.purchaseNo}`}
           >
@@ -327,7 +327,7 @@ function SelectedInvoice({ purchase: p, navigate, addPayment }) {
                 <p className="text-xs font-semibold text-neutral-900">Masih menunggu {remaining} pcs</p>
               )}
             </div>
-            <Button size="sm" fullWidth={false} onClick={() => navigate(`/admin/pembelian/${p.id}/terima`)}>
+            <Button size="sm" fullWidth={false} onClick={() => navigate(`/pembelian/${p.id}/terima`)}>
               <PackageCheck className="h-4 w-4" aria-hidden />
               {received > 0 ? "Terima sisa barang" : "Terima barang"}
             </Button>

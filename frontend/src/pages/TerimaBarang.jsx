@@ -31,8 +31,8 @@ export default function TerimaBarang() {
   const { purchases } = usePurchase();
   const purchase = purchases.find((p) => p.id === id);
 
-  if (!purchase) return <Navigate to="/admin/pembelian" replace />;
-  if (purchase.status === "diterima") return <Navigate to={`/admin/pembelian/${id}`} replace />;
+  if (!purchase) return <Navigate to="/pembelian" replace />;
+  if (purchase.status === "diterima") return <Navigate to={`/pembelian/${id}`} replace />;
   return <TerimaForm purchase={purchase} />;
 }
 
@@ -60,7 +60,7 @@ function TerimaForm({ purchase }) {
 
   const supplier = SUPPLIERS.find((s) => s.id === purchase.supplierId);
   const receipt = receiptPill(purchase);
-  const detailPath = `/admin/pembelian/${purchase.id}`;
+  const detailPath = `/pembelian/${purchase.id}`;
   const total = purchaseTotal(purchase);
   const debt = purchaseDebt(purchase);
   const totalQty = purchaseQty(purchase);
@@ -111,13 +111,13 @@ function TerimaForm({ purchase }) {
 
   return (
     <AdminShell
-      breadcrumb={[{ label: "Ruang kerja" }, { label: "Pembelian & Barang Masuk", href: "/admin/pembelian" }]}
+      breadcrumb={[{ label: "Ruang kerja" }, { label: "Pembelian & Barang Masuk", href: "/pembelian" }]}
     >
       <div className="mx-auto max-w-6xl space-y-5 pb-16">
         <div>
           <button
             type="button"
-            onClick={() => navigate("/admin/pembelian")}
+            onClick={() => navigate("/pembelian")}
             className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-700 hover:underline"
           >
             <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
