@@ -4,7 +4,7 @@ import { CalendarDays, Search } from "lucide-react";
 import { GENERAL_CUSTOMER } from "../lib/data/posMockData";
 import { formatTanggal, printDoc, toInputDate } from "../lib/utils/pos";
 import { cn } from "../lib/utils/cn";
-import { CATEGORIES } from "../lib/data/stockMockData";
+import { useStock } from "../lib/stores/StockContext";
 import { useFinance } from "../lib/stores/FinanceContext";
 import AdminShell from "../lib/components/layout/AdminShell";
 import { useCart } from "../lib/hooks/useCart";
@@ -21,6 +21,7 @@ function KasirContent() {
   const { nextNo, nextSeq, addTransaction } = useTransactions();
   const searchRef = useRef(null);
   const catalog = useCatalog();
+  const { categories } = useStock();
   const adjustStock = useStockAdjust();
   const { addEntry } = useFinance();
   const [category, setCategory] = useState("");
@@ -115,7 +116,7 @@ function KasirContent() {
               />
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5">
-              {["", ...CATEGORIES].map((c) => (
+              {["", ...categories.map((x) => x.name)].map((c) => (
                 <button
                   key={c || "semua"} type="button" onClick={() => setCategory(c)} aria-pressed={category === c}
                   className={cn("rounded-full px-3 py-1 text-[11px] font-medium transition-colors", category === c ? "bg-brand-600 text-white" : "bg-white text-neutral-600 hover:bg-neutral-200")}

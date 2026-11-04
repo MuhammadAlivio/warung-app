@@ -2,8 +2,10 @@
 
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\EmployeeController;
+use App\Http\Controllers\ProductController;
 use App\Http\Controllers\TwoFactorController;
 use App\Http\Middleware\EnsureActive;
 use App\Http\Middleware\LogActivity;
@@ -24,6 +26,14 @@ Route::middleware(['auth:sanctum', EnsureActive::class, LogActivity::class])->gr
     // Admin & kasir (daftar karyawan: kasir hanya melihat, datanya dibatasi di controller)
     Route::apiResource('customers', CustomerController::class)->except('show');
     Route::get('/employees', [EmployeeController::class, 'index']);
+
+    // Stok Barang: admin & kasir aksesnya sama (keputusan tim 4 Nov 2026)
+    Route::apiResource('categories', CategoryController::class)->except('show');
+    Route::apiResource('products', ProductController::class)->except('show');
+    Route::get('/products/{product}/movements', [ProductController::class, 'movements']);
+    Route::get('/products/{product}/image', [ProductController::class, 'showImage']);
+    Route::post('/products/{product}/image', [ProductController::class, 'uploadImage']);
+    Route::delete('/products/{product}/image', [ProductController::class, 'deleteImage']);
 
     // Khusus admin
     Route::middleware('role:admin')->group(function () {

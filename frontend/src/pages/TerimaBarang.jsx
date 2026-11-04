@@ -39,7 +39,7 @@ export default function TerimaBarang() {
 function TerimaForm({ purchase }) {
   const navigate = useNavigate();
   const { receiveItems } = usePurchase();
-  const { products, updateProduct } = useStock();
+  const { adjustLocal } = useStock();
 
   const [receiveDate, setReceiveDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [receivedBy, setReceivedBy] = useState("Dina Anggraini");
@@ -100,11 +100,8 @@ function TerimaForm({ purchase }) {
         .map((r) => ({ productId: r.productId, productName: r.productName, qty: r.receiveNow })),
     });
 
-    for (const r of rows) {
-      if (r.receiveNow <= 0) continue;
-      const product = products.find((p) => p.id === r.productId);
-      if (product) updateProduct(r.productId, { stock: product.stock + r.receiveNow });
-    }
+    // SEMENTARA hanya di layar; nanti stok ditambah backend saat penerimaan disimpan lewat API
+    adjustLocal(Object.fromEntries(rows.filter((r) => r.receiveNow > 0).map((r) => [r.productId, r.receiveNow])));
 
     navigate(detailPath);
   };

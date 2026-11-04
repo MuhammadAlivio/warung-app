@@ -1,16 +1,16 @@
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button, ImageUpload, Input, Modal, ModalBody, ModalFooter, Select, Textarea } from "../ui";
-import { CATEGORIES } from "../../data/stockMockData";
+import { useStock } from "../../stores/StockContext";
 import { productSchema } from "../../schemas/stock";
 
-const EMPTY = { image: null, name: "", description: "", category: "", buyPrice: "", sellPrice: "", stock: "", minStock: "" };
+const EMPTY = { image: null, name: "", description: "", categoryId: "", buyPrice: "", sellPrice: "", stock: "", minStock: "" };
 
 const toFormValues = (p) => ({
   image: p.image ?? null,
   name: p.name,
   description: p.description ?? "",
-  category: p.category,
+  categoryId: String(p.categoryId),
   buyPrice: String(p.buyPrice),
   sellPrice: String(p.sellPrice),
   stock: String(p.stock),
@@ -18,6 +18,7 @@ const toFormValues = (p) => ({
 });
 
 function StockFormBody({ product, onSave, onClose }) {
+  const { categories } = useStock();
   const {
     register,
     control,
@@ -30,14 +31,21 @@ function StockFormBody({ product, onSave, onClose }) {
   });
 
   const submit = async (values) => {
-    // onSave boleh mengembalikan { field, message } untuk error pada satu field
+    // onSave boleh mengembalikan [{ field, message }] untuk error per field, atau { form } untuk error umum
     const problem = await onSave(values);
-    if (problem) setError(problem.field, { message: problem.message });
+    if (!problem) return;
+    if (problem.form) setError("root", { message: problem.form });
+    (problem.fields ?? []).forEach((p) => setError(p.field, { message: p.message }));
   };
 
   return (
     <form onSubmit={handleSubmit(submit)} noValidate className="flex min-h-0 flex-1 flex-col">
       <ModalBody className="space-y-4">
+        {errors.root && (
+          <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+            {errors.root.message}
+          </p>
+        )}
         <Input label="Nama Barang" placeholder="Masukkan nama barang" error={errors.name?.message} {...register("name")} />
         <Textarea
           label="Keterangan Barang"
@@ -48,9 +56,9 @@ function StockFormBody({ product, onSave, onClose }) {
         <Select
           label="Kategori"
           placeholder="Pilih kategori"
-          options={CATEGORIES.map((c) => ({ value: c, label: c }))}
-          error={errors.category?.message}
-          {...register("category")}
+          options={categories.map((c) => ({ value: String(c.id), label: c.name }))}
+          error={errors.categoryId?.message}
+          {...register("categoryId")}
         />
         <Controller
           name="image"
@@ -78,7 +86,7 @@ function StockFormBody({ product, onSave, onClose }) {
           {...register("sellPrice")}
         />
         <Input
-          label="Stok Awal"
+          label={product ? "Stok Saat Ini" : "Stok Awal"}
           type="number"
           inputMode="numeric"
           min="0"

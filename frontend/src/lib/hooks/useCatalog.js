@@ -10,16 +10,12 @@ export function useCatalog() {
   );
 }
 
-/** Ubah stok sekaligus. deltas = { [productId]: +n (stok bertambah) | -n (berkurang) } */
+/**
+ * Ubah stok sekaligus. deltas = { [productId]: +n (stok bertambah) | -n (berkurang) }
+ * SEMENTARA hanya di layar (adjustLocal): stok di database baru ikut berubah setelah
+ * transaksi kasir disimpan lewat API.
+ */
 export function useStockAdjust() {
-  const { products, updateProduct } = useStock();
-  return useCallback(
-    (deltas) => {
-      Object.entries(deltas).forEach(([id, d]) => {
-        const p = products.find((x) => x.id === id);
-        if (p && d) updateProduct(id, { stock: Math.max(0, p.stock + d) });
-      });
-    },
-    [products, updateProduct]
-  );
+  const { adjustLocal } = useStock();
+  return useCallback((deltas) => adjustLocal(deltas), [adjustLocal]);
 }

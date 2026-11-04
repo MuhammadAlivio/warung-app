@@ -18,6 +18,9 @@ const refreshCsrf = () => fetch("/sanctum/csrf-cookie", { credentials: "include"
 export async function api(path, { method = "GET", body } = {}, retried = false) {
   if (method !== "GET" && !readCookie("XSRF-TOKEN")) await refreshCsrf();
 
+  // FormData (unggah file) dikirim apa adanya; browser yang mengisi Content-Type multipart
+  const isForm = body instanceof FormData;
+
   let res;
   try {
     res = await fetch(path, {
@@ -25,10 +28,10 @@ export async function api(path, { method = "GET", body } = {}, retried = false) 
       credentials: "include",
       headers: {
         Accept: "application/json",
-        ...(body !== undefined && { "Content-Type": "application/json" }),
+        ...(body !== undefined && !isForm && { "Content-Type": "application/json" }),
         ...(method !== "GET" && { "X-XSRF-TOKEN": readCookie("XSRF-TOKEN") ?? "" }),
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
     });
   } catch {
     throw new ApiError("Tidak dapat terhubung ke server. Coba lagi.", 0);

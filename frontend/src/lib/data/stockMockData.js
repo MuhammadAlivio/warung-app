@@ -1,5 +1,3 @@
-export const CATEGORIES = ["Sembako", "Makanan", "Minuman", "Kebutuhan Rumah", "Perawatan"];
-
 /** Status stok dihitung dari stok vs batas minimum per barang. */
 export function getStockStatus({ stock, minStock }) {
   if (stock <= 0) return { key: "out", label: "Habis", variant: "danger" };

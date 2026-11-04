@@ -1,18 +1,31 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, ChevronDown, ImageIcon, PackageSearch, Plus, Search, SlidersHorizontal } from "lucide-react";
+import { AlertTriangle, ChevronDown, ImageIcon, PackageSearch, Plus, Search, SlidersHorizontal, Tags } from "lucide-react";
 import DashboardLayout from "../lib/components/layout/DashboardLayout";
-import { Badge, Button, Card, Pagination } from "../lib/components/ui";
+import { Badge, Button, Card } from "../lib/components/ui";
 import { formatRupiah } from "../lib/utils/format";
 import { cn } from "../lib/utils/cn";
+import CategoryManagerModal from "../lib/components/stock/CategoryManagerModal";
 import DeleteStockModal from "../lib/components/stock/DeleteStockModal";
 import FilterSelect from "../lib/components/stock/FilterSelect";
 import StatCard from "../lib/components/stock/StatCard";
 import StockFormModal from "../lib/components/stock/StockFormModal";
 import { useStock } from "../lib/stores/StockContext";
-import { CATEGORIES, getStockStatus } from "../lib/data/stockMockData";
+import { getStockStatus } from "../lib/data/stockMockData";
 
-const PAGE_SIZE = 6;
+// Nama field dari backend (snake_case) -> nama field form
+const FIELD_MAP = {
+  name: "name", description: "description", category_id: "categoryId", buy_price: "buyPrice",
+  sell_price: "sellPrice", stock: "stock", min_stock: "minStock", image: "image",
+};
+
+/** ApiError -> { form, fields } untuk ditampilkan di StockFormModal. */
+const toFormProblem = (e) => {
+  const fields = Object.entries(e.data?.errors ?? {})
+    .filter(([k]) => FIELD_MAP[k])
+    .map(([k, v]) => ({ field: FIELD_MAP[k], message: v[0] }));
+  return fields.length ? { fields } : { form: e.message };
+};
 
 const STATUS_OPTIONS = [
   { value: "ok", label: "Aman" },
@@ -22,73 +35,62 @@ const STATUS_OPTIONS = [
 
 const TH = "px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500";
 
-/** "Per pcs" -> "pcs"; catatan lain (mis. "5 kg / karung") dianggap pcs. */
-const unitOf = (note = "") => (note.startsWith("Per ") ? note.slice(4) : "pcs");
-
 export default function StockPage() {
   const navigate = useNavigate();
-  const { products, addProduct, updateProduct, deleteProduct } = useStock();
+  const { products, categories, loading, error, reload, addProduct, updateProduct, deleteProduct } = useStock();
 
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("");
+  const [categoryId, setCategoryId] = useState("");
   const [status, setStatus] = useState("");
-  const [page, setPage] = useState(1);
 
-  // Satu state untuk ketiga modal: { type: "add" } | { type: "edit"|"delete", product }
+  // Satu state untuk semua modal: { type: "add" | "categories" } | { type: "edit"|"delete", product }
   const [modal, setModal] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   const stats = useMemo(() => {
     const low = products.filter((p) => getStockStatus(p).key === "low");
     const out = products.filter((p) => getStockStatus(p).key === "out");
-    return { low, out, categories: new Set(products.map((p) => p.category)).size };
+    return { low, out };
   }, [products]);
 
-  const filtered = useMemo(() => {
+  // Semua barang tampil sekaligus (tanpa pagination), hanya disaring filter
+  const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return products.filter(
       (p) =>
         (!q || p.name.toLowerCase().includes(q)) &&
-        (!category || p.category === category) &&
+        (!categoryId || String(p.categoryId) === categoryId) &&
         (!status || getStockStatus(p).key === status)
     );
-  }, [products, query, category, status]);
+  }, [products, query, categoryId, status]);
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, pageCount);
-  const rows = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-
-  // Setiap filter berubah, kembali ke halaman 1
-  const withReset = (setter) => (e) => {
-    setter(e.target.value);
-    setPage(1);
+  const closeModal = () => {
+    setModal(null);
+    setDeleteError("");
   };
 
-  const closeModal = () => setModal(null);
-
   const saveProduct = async (values) => {
-    const editingId = modal?.type === "edit" ? modal.product.id : null;
-    const duplicate = products.some((p) => p.id !== editingId && p.name.toLowerCase() === values.name.toLowerCase());
-    if (duplicate) return { field: "name", message: "Nama barang sudah ada" };
-
-    await new Promise((r) => setTimeout(r, 500)); // TODO: panggilan API
-    // TODO: unggah File ke backend lalu simpan URL hasilnya. Sementara dipakai URL lokal (hanya berlaku selama sesi).
-    const image = values.image instanceof File ? URL.createObjectURL(values.image) : values.image ?? null;
-    const oldImage = modal?.type === "edit" ? modal.product.image : null;
-    if (oldImage?.startsWith("blob:") && oldImage !== image) URL.revokeObjectURL(oldImage);
-
-    const data = { ...values, image };
-    if (editingId) updateProduct(editingId, data);
-    else addProduct(data);
-    closeModal();
+    try {
+      if (modal?.type === "edit") await updateProduct(modal.product.id, values);
+      else await addProduct(values);
+      closeModal();
+    } catch (e) {
+      return toFormProblem(e);
+    }
   };
 
   const confirmDelete = async () => {
     setDeleting(true);
-    await new Promise((r) => setTimeout(r, 500)); // TODO: panggilan API
-    deleteProduct(modal.product.id);
-    setDeleting(false);
-    closeModal();
+    setDeleteError("");
+    try {
+      await deleteProduct(modal.product.id);
+      closeModal();
+    } catch (e) {
+      setDeleteError(e.message);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const firstLow = stats.low[0];
@@ -105,11 +107,26 @@ export default function StockPage() {
             <h1 className="text-2xl font-bold tracking-tight">Stok Barang</h1>
             <p className="mt-1 text-xs text-neutral-500">Pantau persediaan, jaga barang tetap tersedia.</p>
           </div>
-          <Button size="sm" fullWidth={false} className="h-10" onClick={() => setModal({ type: "add" })}>
-            <Plus className="h-4 w-4" aria-hidden />
-            Tambah barang
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" fullWidth={false} className="h-10" onClick={() => setModal({ type: "categories" })}>
+              <Tags className="h-4 w-4" aria-hidden />
+              Kelola kategori
+            </Button>
+            <Button size="sm" fullWidth={false} className="h-10" onClick={() => setModal({ type: "add" })} disabled={loading}>
+              <Plus className="h-4 w-4" aria-hidden />
+              Tambah barang
+            </Button>
+          </div>
         </div>
+
+        {error && (
+          <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-red-50 px-4 py-2.5 text-xs text-red-700">
+            <p>Gagal memuat data stok: {error}</p>
+            <button type="button" onClick={reload} className="font-semibold underline">
+              Coba lagi
+            </button>
+          </div>
+        )}
 
         {firstLow && (
           <div
@@ -118,8 +135,8 @@ export default function StockPage() {
           >
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
             <p>
-              {stats.low.length} barang perlu diisi ulang. {firstLow.name} tersisa {firstLow.stock} {unitOf(firstLow.note)}{" "}
-              dari batas minimum {firstLow.minStock} {unitOf(firstLow.note)}.
+              {stats.low.length} barang perlu diisi ulang. {firstLow.name} tersisa {firstLow.stock} {firstLow.unit}{" "}
+              dari batas minimum {firstLow.minStock} {firstLow.unit}.
             </p>
           </div>
         )}
@@ -139,7 +156,7 @@ export default function StockPage() {
                     aria-label="Cari barang"
                     placeholder="Cari barang..."
                     value={query}
-                    onChange={withReset(setQuery)}
+                    onChange={(e) => setQuery(e.target.value)}
                     className="h-10 w-full rounded-lg border border-neutral-200 bg-white pl-9 pr-3 text-xs placeholder:text-neutral-400 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15"
                   />
                 </div>
@@ -147,9 +164,9 @@ export default function StockPage() {
                   icon={ChevronDown}
                   label="Filter kategori"
                   placeholder="Semua kategori"
-                  options={CATEGORIES.map((c) => ({ value: c, label: c }))}
-                  value={category}
-                  onChange={withReset(setCategory)}
+                  options={categories.map((c) => ({ value: String(c.id), label: c.name }))}
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
                 />
                 <FilterSelect
                   icon={SlidersHorizontal}
@@ -157,7 +174,7 @@ export default function StockPage() {
                   placeholder="Status stok"
                   options={STATUS_OPTIONS}
                   value={status}
-                  onChange={withReset(setStatus)}
+                  onChange={(e) => setStatus(e.target.value)}
                 />
               </div>
             </div>
@@ -238,31 +255,38 @@ export default function StockPage() {
                 </tbody>
               </table>
 
-              {filtered.length === 0 && (
+              {loading && products.length === 0 && (
+                <p className="py-14 text-center text-xs text-neutral-500">Memuat data barang…</p>
+              )}
+
+              {!loading && rows.length === 0 && (
                 <div className="flex flex-col items-center gap-2 py-14 text-center">
                   <PackageSearch className="h-8 w-8 text-neutral-400" aria-hidden />
-                  <p className="text-sm font-semibold text-neutral-700">Barang tidak ditemukan</p>
-                  <p className="text-xs text-neutral-500">Coba ubah kata kunci atau filter pencarian.</p>
+                  {products.length === 0 ? (
+                    <>
+                      <p className="text-sm font-semibold text-neutral-700">Belum ada barang</p>
+                      <p className="text-xs text-neutral-500">Klik "Tambah barang" untuk mulai mencatat stok.</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm font-semibold text-neutral-700">Barang tidak ditemukan</p>
+                      <p className="text-xs text-neutral-500">Coba ubah kata kunci atau filter pencarian.</p>
+                    </>
+                  )}
                 </div>
               )}
             </div>
 
-            <Pagination
-              className="px-4 py-3"
-              page={currentPage}
-              pageCount={pageCount}
-              total={filtered.length}
-              pageSize={PAGE_SIZE}
-              itemLabel="barang"
-              onChange={setPage}
-            />
+            <p className="px-4 py-3 text-xs text-neutral-500">
+              Menampilkan {rows.length} dari {products.length} barang
+            </p>
           </Card>
 
           <div className="grid content-start gap-4 sm:grid-cols-3 lg:grid-cols-1">
             <StatCard
               label="Total barang aktif"
               value={products.length}
-              caption={`${stats.categories} kategori barang`}
+              caption={`${categories.length} kategori barang`}
             />
             <StatCard label="Stok menipis" value={`${stats.low.length} barang`} caption="Di bawah batas minimum" />
             <StatCard label="Stok habis" value={`${stats.out.length} barang`} caption="Perlu segera dipesan" />
@@ -279,9 +303,11 @@ export default function StockPage() {
       <DeleteStockModal
         product={modal?.type === "delete" ? modal.product : null}
         loading={deleting}
+        error={deleteError}
         onCancel={closeModal}
         onConfirm={confirmDelete}
       />
+      <CategoryManagerModal open={modal?.type === "categories"} onClose={closeModal} />
     </DashboardLayout>
   );
 }
