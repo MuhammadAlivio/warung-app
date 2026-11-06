@@ -38,10 +38,16 @@ function DaftarKaryawanContent() {
     if (form.employee) {
       await api(`/api/employees/${form.employee.id}`, {
         method: "PUT",
-        body: { name: values.name, email: values.email, is_active: values.is_active, password: values.password || null },
+        body: {
+          name: values.name,
+          email: values.email,
+          role: values.role,
+          is_active: values.is_active,
+          password: values.password || null,
+        },
       });
     } else {
-      await api("/api/employees", { method: "POST", body: { name: values.name, email: values.email, password: values.password } });
+      await api("/api/employees", { method: "POST", body: { name: values.name, email: values.email, password: values.password, role: values.role } });
     }
     await load();
   };
@@ -51,7 +57,7 @@ function DaftarKaryawanContent() {
     try {
       await api(`/api/employees/${e.id}`, {
         method: "PUT",
-        body: { name: e.name, email: e.email, is_active: !e.is_active, password: null },
+        body: { name: e.name, email: e.email, role: e.role, is_active: !e.is_active, password: null },
       });
       await load();
     } catch (err) {
@@ -70,7 +76,7 @@ function DaftarKaryawanContent() {
           <h1 className="text-2xl font-bold tracking-tight">Daftar Karyawan</h1>
           <p className="mt-1 text-xs text-neutral-500">
             {isAdmin
-              ? "Kelola akun karyawan toko. Akun yang dinonaktifkan tidak bisa login, riwayat aktivitasnya tetap tersimpan."
+              ? "Kelola akun karyawan dan administrator toko, termasuk mengubah peran. Akun yang dinonaktifkan tidak bisa login, riwayat aktivitasnya tetap tersimpan."
               : "Daftar karyawan toko. Pengelolaan akun hanya bisa dilakukan administrator."}
           </p>
         </div>
@@ -148,19 +154,18 @@ function DaftarKaryawanContent() {
                     {isAdmin && <td className="px-4 py-3.5 text-xs text-neutral-600">{formatDateTime(e.last_login_at)}</td>}
                     {isAdmin && (
                     <td className="px-4 py-3.5">
-                      {rowIsAdmin ? (
-                        <span className="text-xs text-neutral-400">-</span>
-                      ) : (
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            fullWidth={false}
-                            onClick={() => setForm({ open: true, employee: e })}
-                            aria-label={`Edit ${e.name}`}
-                          >
-                            <Pencil className="h-3.5 w-3.5" aria-hidden /> Edit
-                          </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          fullWidth={false}
+                          onClick={() => setForm({ open: true, employee: e })}
+                          aria-label={`Edit ${e.name}`}
+                        >
+                          <Pencil className="h-3.5 w-3.5" aria-hidden /> Edit
+                        </Button>
+                        {/* Akun sendiri tidak bisa dinonaktifkan */}
+                        {e.id !== user?.id && (
                           <Button
                             size="sm"
                             variant={e.is_active ? "danger" : "primary"}
@@ -169,8 +174,8 @@ function DaftarKaryawanContent() {
                           >
                             {e.is_active ? "Nonaktifkan" : "Aktifkan"}
                           </Button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </td>
                     )}
                   </tr>
@@ -186,6 +191,7 @@ function DaftarKaryawanContent() {
         onClose={() => setForm({ open: false, employee: undefined })}
         onSubmit={save}
         employee={form.employee}
+        isSelf={form.employee?.id === user?.id}
       />
 
       <Modal

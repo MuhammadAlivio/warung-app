@@ -12,6 +12,7 @@ use App\Http\Middleware\LogActivity;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:5,1');
 
 // 2FA admin: berjalan setelah password benar (sesi "pending"), sebelum login penuh
 Route::post('/2fa/setup', [TwoFactorController::class, 'setup']);

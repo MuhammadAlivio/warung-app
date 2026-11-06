@@ -9,7 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 
-/** Daftar karyawan (khusus admin). Karyawan = user; akun yang dibuat di sini selalu berperan kasir. */
+/** Daftar karyawan (khusus admin). Karyawan = user; akun baru bisa berperan kasir atau administrator (admin baru wajib setup 2FA saat login pertama). */
 class EmployeeController extends Controller
 {
     public function __construct(private ActivityLogger $logger) {}
@@ -30,28 +30,36 @@ class EmployeeController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', Password::min(8)->letters()->numbers()],
+            'role' => ['sometimes', 'in:kasir,admin'],
+            // Administrator memegang akses penuh, jadi password-nya harus lebih panjang
+            'password' => ['required', Password::min($request->input('role') === 'admin' ? 12 : 8)->letters()->numbers()],
         ]);
 
-        $user = User::create([...$data, 'role' => 'kasir', 'is_active' => true]);
+        $role = $data['role'] ?? 'kasir';
+        $user = User::create([...$data, 'role' => $role, 'is_active' => true]);
 
-        $this->logger->record($request, 'karyawan', 'tambah', "Menambah karyawan {$user->name} ({$user->email})", $user);
+        $label = $role === 'admin' ? 'administrator' : 'karyawan';
+        $this->logger->record($request, 'karyawan', 'tambah', "Menambah {$label} {$user->name} ({$user->email})", $user);
 
         return response()->json(['data' => $this->payload($user)], 201);
     }
 
     public function update(Request $request, User $employee): JsonResponse
     {
-        if ($employee->role !== 'kasir') {
-            return response()->json(['message' => 'Akun administrator tidak bisa diubah dari sini.'], 403);
-        }
-
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($employee->id)],
+            'role' => ['required', 'in:kasir,admin'],
             'is_active' => ['required', 'boolean'],
-            'password' => ['nullable', Password::min(8)->letters()->numbers()],
+            // Administrator memegang akses penuh, jadi password-nya harus lebih panjang
+            'password' => ['nullable', Password::min($request->input('role') === 'admin' ? 12 : 8)->letters()->numbers()],
         ]);
+
+        // Pengaman: admin tidak bisa menurunkan peran atau menonaktifkan akunnya sendiri,
+        // jadi selalu ada minimal satu admin aktif yang tersisa.
+        if ($employee->id === $request->user()->id && ($data['role'] !== $employee->role || ! $data['is_active'])) {
+            return response()->json(['message' => 'Anda tidak bisa mengubah peran atau menonaktifkan akun Anda sendiri.'], 422);
+        }
 
         $changes = [];
         if ($data['name'] !== $employee->name) {
@@ -60,11 +68,28 @@ class EmployeeController extends Controller
         if ($data['email'] !== $employee->email) {
             $changes[] = "email menjadi {$data['email']}";
         }
+        if ($data['role'] !== $employee->role) {
+            $changes[] = 'peran menjadi '.($data['role'] === 'admin' ? 'administrator' : 'kasir');
+        }
         if ($data['is_active'] !== $employee->is_active) {
             $changes[] = $data['is_active'] ? 'mengaktifkan akun' : 'menonaktifkan akun';
         }
 
-        $employee->fill(['name' => $data['name'], 'email' => $data['email'], 'is_active' => $data['is_active']]);
+        $employee->fill([
+            'name' => $data['name'],
+            'email' => $data['email'],
+            'role' => $data['role'],
+            'is_active' => $data['is_active'],
+        ]);
+
+        // Diturunkan dari admin ke kasir: 2FA dihapus. Kalau nanti dijadikan admin lagi, setup dari awal.
+        if ($employee->isDirty('role') && $data['role'] === 'kasir') {
+            $employee->forceFill([
+                'two_factor_secret' => null,
+                'two_factor_recovery_codes' => null,
+                'two_factor_confirmed_at' => null,
+            ]);
+        }
 
         // Reset password oleh admin sekaligus membuka kunci akun
         if (! empty($data['password'])) {
@@ -80,7 +105,7 @@ class EmployeeController extends Controller
             $request,
             'karyawan',
             'ubah',
-            "Mengubah karyawan {$employee->name}".($changes ? ': '.implode(', ', $changes) : ''),
+            "Mengubah akun {$employee->name}".($changes ? ': '.implode(', ', $changes) : ''),
             $employee,
         );
 

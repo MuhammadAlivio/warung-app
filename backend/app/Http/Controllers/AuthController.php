@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rules\Password;
 
 class AuthController extends Controller
 {
@@ -42,7 +43,7 @@ class AuthController extends Controller
         if (! $user->is_active) {
             $this->guard->fail(null, $data['email'], 'akun_nonaktif', $request);
 
-            return response()->json(['message' => 'Akun dinonaktifkan. Hubungi administrator.'], 403);
+            return response()->json(['message' => 'Akun belum aktif atau dinonaktifkan. Hubungi administrator.'], 403);
         }
 
         if (($data['admin_only'] ?? false) && $user->role !== 'admin') {
@@ -68,6 +69,34 @@ class AuthController extends Controller
         $this->guard->success($user, $request);
 
         return response()->json(['needs_2fa' => false, 'user' => $this->payload($user)]);
+    }
+
+    /** Pendaftaran mandiri: akun selalu berperan kasir dan baru aktif setelah disetujui admin. */
+    public function register(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'min:2', 'max:255'],
+            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
+            'password' => ['required', 'confirmed', Password::min(12)->letters()->numbers()],
+            'terms' => ['accepted'],
+        ], [
+            'terms.accepted' => 'Anda harus menyetujui Syarat & Ketentuan',
+            'password.confirmed' => 'Konfirmasi password tidak cocok',
+        ]);
+
+        $user = User::create([
+            'name' => trim($data['name']),
+            'email' => $data['email'],
+            'password' => $data['password'],
+            'role' => 'kasir',
+            'is_active' => false,
+        ]);
+
+        $this->logger->record($request, 'karyawan', 'daftar', "{$user->name} ({$user->email}) mendaftar, menunggu persetujuan admin", $user, $user);
+
+        return response()->json([
+            'message' => 'Pendaftaran berhasil. Akun Anda aktif setelah disetujui administrator.',
+        ], 201);
     }
 
     public function me(Request $request): JsonResponse
