@@ -1,14 +1,15 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { CalendarDays, Download, FileText, Pencil, Printer, Search, Wallet, XCircle } from "lucide-react";
+import { CalendarDays, FileText, Pencil, Printer, Search, Wallet, XCircle } from "lucide-react";
 import { Badge, Button, Card, Input, Pagination, Select } from "../lib/components/ui";
 import { cn } from "../lib/utils/cn";
-import { formatAngka, formatJam, formatRupiah, formatTanggal, isSameDay, printDoc, toInputDate } from "../lib/utils/pos";
+import { formatAngka, formatJam, formatRupiah, formatTanggal, printDoc, toInputDate } from "../lib/utils/pos";
 import { useTransactions } from "../lib/stores/TransactionContext";
 import { useStockAdjust } from "../lib/hooks/useCatalog";
-import { useFinance } from "../lib/stores/FinanceContext";
+import { useStock } from "../lib/stores/StockContext";
 import AdminShell from "../lib/components/layout/AdminShell";
-import { remainingOf, statusOf, STATUS_VARIANT, unitsOf } from "../lib/utils/transaction";
+import { remainingOf, statusOf, STATUS_VARIANT } from "../lib/utils/transaction";
+import { addSalePayment, cancelSale, fetchSale, fetchSales, fetchSalesSummary } from "../lib/utils/sales";
 import ReceiptPreview from "../lib/components/pos/ReceiptPreview";
 import InvoiceDocument from "../lib/components/pos/InvoiceDocument";
 import EditPaymentModal from "../lib/components/transaksi/EditPaymentModal";
@@ -31,44 +32,95 @@ function Stat({ title, value, sub }) {
 function RiwayatTransaksiContent() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { transactions, addPayment, cancelTransaction } = useTransactions();
+  // Sinkron ke data sesi (Daftar Pelanggan & Chatbot masih membaca TransactionContext)
+  const { addPayment, cancelTransaction } = useTransactions();
   const adjustStock = useStockAdjust();
-  const { addEntry } = useFinance();
+  const { categories } = useStock();
 
   const [q, setQ] = useState(location.state?.search ?? "");
+  const [debouncedQ, setDebouncedQ] = useState(q);
   const [method, setMethod] = useState("");
   const [status, setStatus] = useState("");
+  const [categoryId, setCategoryId] = useState("");
   const [date, setDate] = useState(toInputDate());
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState(location.state?.selectedId ?? null);
   const [payOpen, setPayOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
 
-  const today = useMemo(() => transactions.filter((t) => isSameDay(t.date, new Date())), [transactions]);
-  const stats = useMemo(() => {
-    const live = today.filter((t) => !t.cancelled);
-    const lunas = live.filter((t) => statusOf(t) === "Lunas");
-    const unpaid = live.filter((t) => statusOf(t) === "Belum Lunas");
-    return {
-      net: live.reduce((s, t) => s + t.total, 0),
-      lunas: lunas.reduce((s, t) => s + t.total, 0), lunasN: lunas.length,
-      unpaid: unpaid.reduce((s, t) => s + remainingOf(t), 0), unpaidN: unpaid.length,
-    };
-  }, [today]);
+  const [rows, setRows] = useState([]);
+  const [meta, setMeta] = useState({ total: 0, page_count: 1 });
+  const [stats, setStats] = useState({ net: 0, lunas: 0, lunas_count: 0, unpaid: 0, unpaid_count: 0 });
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [actionError, setActionError] = useState(""); // gagal simpan pelunasan / pembatalan
+  const [version, setVersion] = useState(0); // naik setelah edit pembayaran / pembatalan -> muat ulang
+  const reload = useCallback(() => setVersion((v) => v + 1), []);
 
-  const filtered = useMemo(() => {
-    const k = q.trim().toLowerCase();
-    return [...transactions]
-      .filter((t) => (!date || toInputDate(t.date) === date) && (!method || t.method === method) && (!status || statusOf(t) === status)
-        && (!k || t.no.toLowerCase().includes(k) || t.customer.name.toLowerCase().includes(k)))
-      .sort((a, b) => b.date - a.date);
-  }, [transactions, q, method, status, date]);
+  const categoryOptions = useMemo(
+    () => [{ value: "", label: "Semua jenis barang" }, ...categories.map((c) => ({ value: String(c.id), label: c.name }))],
+    [categories]
+  );
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const selected = transactions.find((t) => t.id === selectedId) ?? rows[0];
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q), 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  // Kartu statistik selalu untuk hari ini (sama seperti sebelumnya)
+  useEffect(() => {
+    fetchSalesSummary().then(setStats).catch(() => {});
+  }, [version]);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    fetchSales({ date, method, status, q: debouncedQ, categoryId, page, perPage: PAGE_SIZE })
+      .then((res) => { if (active) { setRows(res.rows); setMeta(res.meta); setError(""); } })
+      .catch((e) => { if (active) { setRows([]); setError(e.message); } })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [date, method, status, debouncedQ, categoryId, page, version]);
+
+  // Detail (item, pembayaran, riwayat perubahan) diambil saat baris dipilih
+  const selectedKey = (Number.isInteger(selectedId) ? selectedId : null) ?? rows[0]?.id ?? null;
+  useEffect(() => {
+    if (selectedKey == null) return setDetail(null);
+    let active = true;
+    fetchSale(selectedKey)
+      .then((tx) => { if (active) setDetail(tx); })
+      .catch(() => { if (active) { setDetail(null); if (selectedId != null) setSelectedId(null); } });
+    return () => { active = false; };
+  }, [selectedKey, version]);
+
+  const pageCount = meta.page_count;
+  const selected = detail && detail.id === selectedKey ? detail : null;
   const sStatus = selected ? statusOf(selected) : null;
   const reset = (fn) => (v) => { fn(v); setPage(1); };
+
+  const submitPayment = async (pay) => {
+    try {
+      await addSalePayment(selected.id, pay);
+      addPayment(selected.id, pay);
+      setActionError("");
+    } catch (e) {
+      setActionError(e.message);
+    }
+    reload();
+  };
+
+  const confirmCancel = async (reason) => {
+    try {
+      await cancelSale(selected.id, reason);
+      adjustStock(Object.fromEntries(selected.items.map((i) => [i.id, i.qty])));
+      cancelTransaction(selected.id, reason);
+      setActionError("");
+    } catch (e) {
+      setActionError(e.message);
+    }
+    reload();
+  };
 
   return (
     <div>
@@ -79,15 +131,15 @@ function RiwayatTransaksiContent() {
         </div>
         <div className="flex items-end gap-2">
           <div className="w-44"><Input aria-label="Filter tanggal" type="date" value={date} onChange={(e) => reset(setDate)(e.target.value)} /></div>
-          <Button variant="outline" fullWidth={false} onClick={() => alert("TODO: ekspor CSV/XLSX")}><Download className="h-4 w-4" aria-hidden /> Ekspor transaksi</Button>
         </div>
       </header>
 
       <div className="grid gap-4 md:grid-cols-3">
         <Stat title="Penjualan bersih hari ini" value={formatAngka(stats.net)} sub="Tidak termasuk transaksi dibatalkan" />
-        <Stat title="Transaksi Lunas" value={formatAngka(stats.lunas)} sub={`${stats.lunasN} Transaksi`} />
-        <Stat title="Transaksi Belum Lunas" value={formatAngka(stats.unpaid)} sub={`${stats.unpaidN} Transaksi`} />
+        <Stat title="Transaksi Lunas" value={formatAngka(stats.lunas)} sub={`${stats.lunas_count} Transaksi`} />
+        <Stat title="Transaksi Belum Lunas" value={formatAngka(stats.unpaid)} sub={`${stats.unpaid_count} Transaksi`} />
       </div>
+      {(actionError || error) && <p role="alert" className="mt-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-xs text-red-700">{actionError || error}</p>}
 
       <div className="mt-6 grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
         <Card className="p-5">
@@ -98,9 +150,10 @@ function RiwayatTransaksiContent() {
           <div className="mb-4 flex flex-wrap gap-2">
             <div className="relative min-w-[200px] flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-500" aria-hidden />
-              <input value={q} onChange={(e) => reset(setQ)(e.target.value)} placeholder="Cari nomor transaksi..." aria-label="Cari transaksi"
+              <input value={q} onChange={(e) => reset(setQ)(e.target.value)} placeholder="Cari nomor transaksi atau pelanggan..." aria-label="Cari transaksi atau pelanggan"
                 className="h-11 w-full rounded-lg border border-neutral-200 pl-10 pr-3 text-sm placeholder:text-neutral-400 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15" />
             </div>
+            <div className="w-44"><Select aria-label="Filter jenis barang" options={categoryOptions} value={categoryId} onChange={(e) => reset(setCategoryId)(e.target.value)} /></div>
             <div className="w-40"><Select aria-label="Filter metode" options={METHOD_OPTIONS} value={method} onChange={(e) => reset(setMethod)(e.target.value)} /></div>
             <div className="w-40"><Select aria-label="Filter status" options={STATUS_OPTIONS} value={status} onChange={(e) => reset(setStatus)(e.target.value)} /></div>
           </div>
@@ -113,12 +166,12 @@ function RiwayatTransaksiContent() {
               <tbody className="divide-y divide-neutral-100">
                 {rows.map((t) => {
                   const st = statusOf(t);
-                  const active = t.id === selected?.id;
+                  const active = t.id === selectedKey;
                   return (
                     <tr key={t.id} onClick={() => setSelectedId(t.id)} className={cn("cursor-pointer hover:bg-neutral-50", active && "bg-brand-50 hover:bg-brand-50")}>
                       <td className="px-4 py-3">
                         <p className={cn("font-mono text-xs font-bold", st === "Belum Lunas" ? "text-red-600" : "text-neutral-900")}>#{t.no}</p>
-                        <p className="text-[11px] text-neutral-500">{formatJam(t.date)} · {unitsOf(t)} item</p>
+                        <p className="text-[11px] text-neutral-500">{formatJam(t.date)} · {t.units} item</p>
                       </td>
                       <td className="px-4 py-3 text-xs">{t.method}</td>
                       <td className={cn("px-4 py-3 font-mono text-xs", st === "Belum Lunas" && "text-red-600")}>
@@ -129,11 +182,11 @@ function RiwayatTransaksiContent() {
                     </tr>
                   );
                 })}
-                {rows.length === 0 && <tr><td colSpan={5} className="py-10 text-center text-sm text-neutral-500">Tidak ada transaksi yang cocok.</td></tr>}
+                {rows.length === 0 && <tr><td colSpan={5} className="py-10 text-center text-sm text-neutral-500">{loading ? "Memuat transaksi..." : "Tidak ada transaksi yang cocok."}</td></tr>}
               </tbody>
             </table>
           </div>
-          <Pagination className="mt-4" page={page} pageCount={pageCount} total={filtered.length} pageSize={PAGE_SIZE} onChange={setPage} itemLabel="transaksi" />
+          <Pagination className="mt-4" page={page} pageCount={pageCount} total={meta.total} pageSize={PAGE_SIZE} onChange={setPage} itemLabel="transaksi" />
         </Card>
 
         <Card className="p-5">
@@ -176,16 +229,13 @@ function RiwayatTransaksiContent() {
               <InvoiceDocument tx={selected} />
             </>
           ) : (
-            <p className="py-16 text-center text-sm text-neutral-500">Pilih transaksi untuk melihat detail.</p>
+            <p className="py-16 text-center text-sm text-neutral-500">{selectedKey != null ? "Memuat detail..." : "Pilih transaksi untuk melihat detail."}</p>
           )}
         </Card>
       </div>
 
-      <EditPaymentModal open={payOpen} tx={selected} onClose={() => setPayOpen(false)} onSubmit={(pay) => {
-        addPayment(selected.id, pay);
-        addEntry({ type: "masuk", category: "Pelunasan piutang", amount: pay.amount, date: toInputDate(pay.date), description: `Pelunasan #${selected.no}`, createdBy: "Kasir" });
-      }} />
-      <CancelTransactionModal open={cancelOpen} tx={selected} onClose={() => setCancelOpen(false)} onConfirm={(reason) => { adjustStock(Object.fromEntries(selected.items.map((i) => [i.id, i.qty]))); cancelTransaction(selected.id, reason); }} />
+      <EditPaymentModal open={payOpen} tx={selected} onClose={() => setPayOpen(false)} onSubmit={submitPayment} />
+      <CancelTransactionModal open={cancelOpen} tx={selected} onClose={() => setCancelOpen(false)} onConfirm={confirmCancel} />
     </div>
   );
 }

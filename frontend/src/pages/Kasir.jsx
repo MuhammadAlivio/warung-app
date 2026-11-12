@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CalendarDays, Search } from "lucide-react";
 import { GENERAL_CUSTOMER } from "../lib/data/posMockData";
-import { formatTanggal, printDoc, toInputDate } from "../lib/utils/pos";
+import { formatTanggal, printDoc } from "../lib/utils/pos";
 import { cn } from "../lib/utils/cn";
 import { useStock } from "../lib/stores/StockContext";
-import { useFinance } from "../lib/stores/FinanceContext";
+import { createSale, fetchNextSaleNo } from "../lib/utils/sales";
 import AdminShell from "../lib/components/layout/AdminShell";
 import { useCart } from "../lib/hooks/useCart";
 import { useCatalog, useStockAdjust } from "../lib/hooks/useCatalog";
@@ -18,13 +18,15 @@ import PaymentSuccess from "../lib/components/pos/PaymentSuccess";
 function KasirContent() {
   const navigate = useNavigate();
   const cart = useCart();
-  const { nextNo, nextSeq, addTransaction } = useTransactions();
+  // addTransaction: salinan sesi untuk Daftar Pelanggan & Chatbot (masih membaca TransactionContext)
+  const { addTransaction } = useTransactions();
   const searchRef = useRef(null);
+  const savingRef = useRef(false);
   const catalog = useCatalog();
   const { categories } = useStock();
   const adjustStock = useStockAdjust();
-  const { addEntry } = useFinance();
   const [category, setCategory] = useState("");
+  const [trxNo, setTrxNo] = useState("");
 
   const [query, setQuery] = useState("");
   const [customer, setCustomer] = useState(GENERAL_CUSTOMER);
@@ -52,23 +54,27 @@ function KasirContent() {
   }, [query, category, catalog]);
   const inCart = useMemo(() => new Set(cart.items.map((i) => i.id)), [cart.items]);
 
-  const finalize = (cashValue) => {
-    const now = new Date();
-    const paidValue = Math.min(cashValue, cart.total);
-    const tx = {
-      id: `t${nextSeq}`, seq: nextSeq, no: nextNo(), date: now,
-      customer, method, items: cart.items.map(({ id, name, price, qty }) => ({ id, name, price, qty })),
-      total: cart.total, paid: paidValue, cancelled: false,
-      cash: cashValue, change: Math.max(cashValue - cart.total, 0),
-      payments: paidValue > 0 ? [{ date: now, method, amount: paidValue, note: "Pembayaran awal" }] : [],
-      history: [], printDoc: selectedPrintDoc,
-    };
-    addTransaction(tx);
-    if (paidValue > 0)
-      addEntry({ type: "masuk", category: "Penjualan", amount: paidValue, date: toInputDate(now), description: `Penjualan #${tx.no}`, createdBy: "Kasir" });
-    adjustStock(Object.fromEntries(tx.items.map((i) => [i.id, -i.qty])));
-    setDone(tx);
-    setTimeout(() => printDoc(tx.printDoc), 400);
+  // Nomor transaksi berikutnya (perkiraan; nomor final ditetapkan server saat disimpan)
+  useEffect(() => {
+    if (done) return;
+    fetchNextSaleNo().then(setTrxNo).catch(() => setTrxNo(""));
+  }, [done]);
+
+  // Simpan ke server: stok terpotong, pembayaran tercatat (otomatis masuk laporan keuangan)
+  const finalize = async (cashValue) => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    try {
+      const tx = await createSale({ customer, method, cash: cashValue, items: cart.items, printDoc: selectedPrintDoc });
+      addTransaction(tx);
+      adjustStock(Object.fromEntries(tx.items.map((i) => [i.id, -i.qty])));
+      setDone(tx);
+      setTimeout(() => printDoc(tx.printDoc), 400);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      savingRef.current = false;
+    }
   };
 
   const pay = () => {
@@ -132,7 +138,7 @@ function KasirContent() {
           </section>
 
           <CartPanel
-            trxNo={nextNo()} cart={cart} customer={customer} onPickCustomer={() => setPickerOpen(true)}
+            trxNo={trxNo} cart={cart} customer={customer} onPickCustomer={() => setPickerOpen(true)}
             method={method} setMethod={setMethod} cash={cash} setCash={(v) => { setCash(v); setError(""); }}
             selectedPrintDoc={selectedPrintDoc} setSelectedPrintDoc={setSelectedPrintDoc}
             change={change} remaining={remaining} error={error} onPay={pay} onSave={save}

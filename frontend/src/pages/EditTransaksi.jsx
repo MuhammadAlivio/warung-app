@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFieldArray, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -10,6 +10,7 @@ import { useCatalog, useStockAdjust } from "../lib/hooks/useCatalog";
 import { useTransactions } from "../lib/stores/TransactionContext";
 import { totalOf, remainingOf, statusOf, STATUS_VARIANT } from "../lib/utils/transaction";
 import { makeEditTransactionSchema } from "../lib/schemas/transaction";
+import { fetchSale, updateSaleItems } from "../lib/utils/sales";
 import AdminShell from "../lib/components/layout/AdminShell";
 
 function Thumb() {
@@ -20,11 +21,29 @@ function Thumb() {
   );
 }
 
+/** Muat transaksi dari server, lalu tampilkan form (form butuh data awal yang sudah lengkap). */
 function EditTransaksiContent() {
   const { id } = useParams();
+  const [tx, setTx] = useState(undefined); // undefined = memuat, null = tidak ditemukan
+
+  useEffect(() => {
+    let active = true;
+    setTx(undefined);
+    fetchSale(id).then((t) => active && setTx(t)).catch(() => active && setTx(null));
+    return () => { active = false; };
+  }, [id]);
+
+  if (tx === undefined) return <div className="p-8 text-sm text-neutral-500">Memuat transaksi...</div>;
+  if (!tx) return <div className="p-8 text-sm text-neutral-500">Transaksi tidak ditemukan.</div>;
+  if (tx.cancelled) return <div className="p-8 text-sm text-neutral-500">Transaksi yang dibatalkan tidak dapat diedit.</div>;
+  return <EditTransaksiForm key={tx.id} tx={tx} />;
+}
+
+function EditTransaksiForm({ tx }) {
   const navigate = useNavigate();
-  const { getTransaction, editItems } = useTransactions();
-  const tx = getTransaction(id);
+  // editItems: salinan sesi untuk Daftar Pelanggan & Chatbot (masih membaca TransactionContext)
+  const { editItems } = useTransactions();
+  const [submitError, setSubmitError] = useState("");
   const catalog = useCatalog();
   const adjustStock = useStockAdjust();
   const productOf = (pid) => catalog.find((p) => p.id === pid);
@@ -44,9 +63,6 @@ function EditTransaksiContent() {
     defaultValues: { items: tx?.items ?? [], reason: "" },
   });
   const { fields, append, remove, update } = useFieldArray({ control, name: "items" });
-
-  if (!tx) return <div className="p-8 text-sm text-neutral-500">Transaksi tidak ditemukan.</div>;
-  if (tx.cancelled) return <div className="p-8 text-sm text-neutral-500">Transaksi yang dibatalkan tidak dapat diedit.</div>;
 
   const items = watch("items");
   const newTotal = totalOf(items);
@@ -73,14 +89,21 @@ function EditTransaksiContent() {
     setSwapIndex(null); setSwapTo("");
   };
 
-  const onSubmit = (v) => {
-    // stok kembali sebesar qty lama, lalu berkurang sebesar qty baru
-    const delta = {};
-    tx.items.forEach((i) => { delta[i.id] = (delta[i.id] ?? 0) + i.qty; });
-    v.items.forEach((i) => { delta[i.id] = (delta[i.id] ?? 0) - i.qty; });
-    adjustStock(delta);
-    editItems(tx.id, v.items, v.reason.trim());
-    navigate("/riwayat-transaksi", { state: { selectedId: tx.id } });
+  const onSubmit = async (v) => {
+    setSubmitError("");
+    try {
+      // Server menyesuaikan stok & total; harga barang lama tetap memakai harga saat transaksi
+      const saved = await updateSaleItems(tx.id, v.items, v.reason.trim());
+      // Tampilan stok lokal: kembali sebesar qty lama, lalu berkurang sebesar qty baru
+      const delta = {};
+      tx.items.forEach((i) => { delta[i.id] = (delta[i.id] ?? 0) + i.qty; });
+      saved.items.forEach((i) => { delta[i.id] = (delta[i.id] ?? 0) - i.qty; });
+      adjustStock(delta);
+      editItems(tx.id, saved.items, v.reason.trim());
+      navigate("/riwayat-transaksi", { state: { selectedId: tx.id } });
+    } catch (e) {
+      setSubmitError(e.message);
+    }
   };
 
   const swapOptions = catalog.filter((p) => !items.some((i) => i.id === p.id))
@@ -202,7 +225,9 @@ function EditTransaksiContent() {
       </div>
 
       <Card className="mt-5 flex flex-wrap items-center justify-between gap-3 p-4">
-        <p className="text-xs text-neutral-500">Periksa kembali daftar belanja sebelum menyimpan.</p>
+        {submitError
+          ? <p role="alert" className="text-xs text-red-600">{submitError}</p>
+          : <p className="text-xs text-neutral-500">Periksa kembali daftar belanja sebelum menyimpan.</p>}
         <div className="flex gap-2">
           <Button type="button" variant="outline" fullWidth={false} onClick={() => navigate("/riwayat-transaksi", { state: { selectedId: tx.id } })}>Batal</Button>
           <Button type="submit" fullWidth={false} loading={isSubmitting} disabled={!isDirty}>Simpan perubahan</Button>

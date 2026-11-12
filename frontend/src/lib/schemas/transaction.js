@@ -9,7 +9,7 @@ export const makeEditTransactionSchema = ({ paid, limitOf }) =>
       items: z
         .array(
           z.object({
-            id: z.string(),
+            id: z.union([z.string(), z.number()]), // id barang dari database berupa angka
             name: z.string(),
             price: z.number(),
             qty: z.number({ invalid_type_error: "Isi jumlah" }).int("Harus bilangan bulat").min(1, "Minimal 1 unit"),

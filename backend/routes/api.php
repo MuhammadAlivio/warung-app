@@ -7,6 +7,7 @@ use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\FinanceController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\SaleController;
 use App\Http\Controllers\TwoFactorController;
 use App\Http\Middleware\EnsureActive;
 use App\Http\Middleware\LogActivity;
@@ -36,6 +37,16 @@ Route::middleware(['auth:sanctum', EnsureActive::class, LogActivity::class])->gr
     Route::get('/products/{product}/image', [ProductController::class, 'showImage']);
     Route::post('/products/{product}/image', [ProductController::class, 'uploadImage']);
     Route::delete('/products/{product}/image', [ProductController::class, 'deleteImage']);
+
+    // Kasir & Riwayat Transaksi: admin & kasir aksesnya sama, termasuk pembatalan (keputusan tim 9 Nov 2026)
+    Route::get('/sales', [SaleController::class, 'index']);
+    Route::get('/sales/summary', [SaleController::class, 'summary']);
+    Route::get('/sales/next-number', [SaleController::class, 'nextNumber']);
+    Route::post('/sales', [SaleController::class, 'store']);
+    Route::get('/sales/{sale}', [SaleController::class, 'show'])->whereNumber('sale');
+    Route::put('/sales/{sale}/items', [SaleController::class, 'updateItems'])->whereNumber('sale');
+    Route::post('/sales/{sale}/payments', [SaleController::class, 'addPayment'])->whereNumber('sale');
+    Route::post('/sales/{sale}/cancel', [SaleController::class, 'cancel'])->whereNumber('sale');
 
     // Khusus admin
     Route::middleware('role:admin')->group(function () {
