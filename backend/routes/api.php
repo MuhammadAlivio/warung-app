@@ -5,6 +5,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\EmployeeController;
+use App\Http\Controllers\FinanceController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\TwoFactorController;
 use App\Http\Middleware\EnsureActive;
@@ -40,5 +41,10 @@ Route::middleware(['auth:sanctum', EnsureActive::class, LogActivity::class])->gr
     Route::middleware('role:admin')->group(function () {
         Route::apiResource('employees', EmployeeController::class)->only(['store', 'update']);
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
+
+        // Keuangan: laporan harian/mingguan/bulanan + catatan kas manual
+        Route::get('/finance/report', [FinanceController::class, 'report']);
+        Route::get('/finance/entries', [FinanceController::class, 'entries']);
+        Route::post('/finance/entries', [FinanceController::class, 'store']);
     });
 });

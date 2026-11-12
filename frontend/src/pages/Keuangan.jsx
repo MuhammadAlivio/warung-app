@@ -8,13 +8,14 @@ import {
   FileSpreadsheet,
   FileText,
   Plus,
+  Search,
   X,
 } from "lucide-react";
 import DashboardLayout from "../lib/components/layout/DashboardLayout";
 import { Button, Card } from "../lib/components/ui";
 import { formatRupiah } from "../lib/utils/format";
 import { cn } from "../lib/utils/cn";
-import { useFinance } from "../lib/stores/FinanceContext";
+import { createFinanceEntry, useFinanceEntries, useFinanceReport } from "../lib/hooks/useFinance";
 import {
   FINANCE_CATEGORIES_IN,
   FINANCE_CATEGORIES_OUT,
@@ -70,27 +71,6 @@ function getWeekNumber(d) {
   return Math.ceil(day / 7);
 }
 
-// Group entries by day for daily table
-function groupByDate(entries) {
-  const map = {};
-  for (const e of entries) {
-    if (!map[e.date]) map[e.date] = [];
-    map[e.date].push(e);
-  }
-  return map;
-}
-
-// Get all days in a week
-function getDaysInRange(start, end) {
-  const days = [];
-  let cur = new Date(start);
-  while (cur <= end) {
-    days.push(isoDate(cur));
-    cur = addDays(cur, 1);
-  }
-  return days;
-}
-
 // Get weeks in a month
 function getWeeksInMonth(d) {
   const { start, end } = getMonthRange(d);
@@ -111,9 +91,11 @@ function CatatModal({ open, onClose, onSave }) {
   const [jenisTipe, setJenisTipe] = useState("");
   const [category, setCategory] = useState("");
   const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(isoDate(new Date(2026, 9, 17))); // 17 Oct 2026
+  const [date, setDate] = useState(isoDate(new Date()));
   const [method, setMethod] = useState("tunai");
   const [description, setDescription] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   const OUT_TYPES = [
     { value: "biaya_operasional", label: "Biaya operasional" },
@@ -125,12 +107,24 @@ function CatatModal({ open, onClose, onSave }) {
   ];
   const categoryOptions = jenis === "masuk" ? FINANCE_CATEGORIES_IN : FINANCE_CATEGORIES_OUT;
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
-    if (!category || !amount) return;
-    onSave({ type: jenis, category, amount: Number(amount), date, description, method, createdBy: "Admin" });
-    setAmount(""); setDescription(""); setCategory(""); setJenisTipe("");
-    onClose();
+    if (!category || !amount) {
+      setError("Jenis dan jumlah wajib diisi.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await onSave({ type: jenis, category, amount: Number(amount), date, description, method });
+      setAmount(""); setDescription(""); setCategory(""); setJenisTipe("");
+      onClose();
+    } catch (err) {
+      const firstFieldError = err.data?.errors && Object.values(err.data.errors)[0]?.[0];
+      setError(firstFieldError || err.message || "Gagal menyimpan catatan.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const netAmount = Number(amount) || 0;
@@ -289,6 +283,13 @@ function CatatModal({ open, onClose, onSave }) {
                 </div>
               </div>
             )}
+
+            {error && (
+              <p role="alert" className="flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2.5 text-xs text-red-700">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                {error}
+              </p>
+            )}
           </div>
 
           <div className="flex gap-2 border-t border-neutral-100 px-5 py-4">
@@ -301,9 +302,10 @@ function CatatModal({ open, onClose, onSave }) {
             </button>
             <button
               type="submit"
-              className="flex h-10 flex-1 items-center justify-center rounded-lg bg-brand-600 text-xs font-semibold text-white hover:bg-brand-700 transition-colors"
+              disabled={saving}
+              className="flex h-10 flex-1 items-center justify-center rounded-lg bg-brand-600 text-xs font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-60"
             >
-              Simpan
+              {saving ? "Menyimpan..." : "Simpan"}
             </button>
           </div>
         </form>
@@ -428,16 +430,29 @@ function UnduhModal({ open, onClose, dateLabel }) {
 
 // ── Main Keuangan Page ───────────────────────────────────────────────────────
 
+const EMPTY_SUMMARY = {
+  pemasukan: 0, pengeluaran: 0, penjualan: 0, hpp: 0, laba_kotor: 0, biaya_operasional: 0,
+  laba_usaha: 0, kas_masuk: 0, kas_keluar: 0, masuk_penjualan: 0, masuk_lainnya: 0,
+  bayar_pemasok: 0, prive: 0, arus_kas_bersih: 0, saldo_awal: 0, saldo_akhir: 0, piutang: 0, jumlah_transaksi: 0,
+};
+
+const signedRupiah = (n) => `${n < 0 ? "− " : "+ "}${formatRupiah(Math.abs(n))}`;
+
 export default function KeuanganPage() {
-  const { entries, addEntry } = useFinance();
-
-  const REF_DATE = new Date(2026, 9, 17); // 17 Oct 2026
-
   const [tab, setTab] = useState("harian");
-  const [currentDate, setCurrentDate] = useState(REF_DATE);
-  const [selectedWeekIdx, setSelectedWeekIdx] = useState(1); // week index in monthly view
+  const [currentDate, setCurrentDate] = useState(() => new Date());
   const [catatOpen, setCatatOpen] = useState(false);
   const [unduhOpen, setUnduhOpen] = useState(false);
+  const [customerQ, setCustomerQ] = useState("");
+  const [incomeRefresh, setIncomeRefresh] = useState(0);
+
+  const { report, loading, error, reload } = useFinanceReport(tab, isoDate(currentDate));
+
+  async function handleSave(data) {
+    await createFinanceEntry(data);
+    reload();
+    setIncomeRefresh((k) => k + 1);
+  }
 
   // ── date ranges ─────────────────────────────────────────────────────────
 
@@ -456,45 +471,23 @@ export default function KeuanganPage() {
     return { startDate: isoDate(start), endDate: isoDate(end) };
   }, [tab, currentDate]);
 
-  // ── filtered entries ─────────────────────────────────────────────────────
+  // ── stats (dihitung backend: FinanceService) ─────────────────────────────
 
-  const filtered = useMemo(
-    () => entries.filter((e) => e.date >= startDate && e.date <= endDate),
-    [entries, startDate, endDate]
+  const s = report?.summary ?? EMPTY_SUMMARY;
+  const stats = {
+    pemasukan: s.pemasukan, pengeluaran: s.pengeluaran, penjualan: s.penjualan, hppTerjual: s.hpp,
+    labaKotor: s.laba_kotor, biayaOperasional: s.biaya_operasional, prive: s.prive, labaUsaha: s.laba_usaha,
+    masukPenjualan: s.masuk_penjualan, masukLainnya: s.masuk_lainnya, bayarPemasok: s.bayar_pemasok,
+    arusKasBersih: s.arus_kas_bersih, saldoAwal: s.saldo_awal, saldoAkhir: s.saldo_akhir, piutang: s.piutang,
+  };
+
+  // ── pemasukan + cari pelanggan ───────────────────────────────────────────
+
+  const { entries: incomeEntries, loading: incomeLoading, error: incomeError } = useFinanceEntries(
+    { start: startDate, end: endDate, type: "masuk", search: customerQ },
+    incomeRefresh,
   );
-
-  // ── stats ────────────────────────────────────────────────────────────────
-
-  const stats = useMemo(() => {
-    const penjualan = filtered
-      .filter((e) => e.type === "masuk" && e.category === "Penjualan")
-      .reduce((s, e) => s + e.amount, 0);
-    const pemasukan = filtered.filter((e) => e.type === "masuk").reduce((s, e) => s + e.amount, 0);
-    const pengeluaran = filtered.filter((e) => e.type === "keluar").reduce((s, e) => s + e.amount, 0);
-    const hppTerjual = filtered
-      .filter((e) => e.type === "keluar" && e.category === "Pembelian barang")
-      .reduce((s, e) => s + e.amount, 0);
-    const labaKotor = penjualan - hppTerjual;
-    const biayaOperasional = filtered
-      .filter((e) => e.type === "keluar" && e.category !== "Pembelian barang" && e.category !== "Prive pemilik")
-      .reduce((s, e) => s + e.amount, 0);
-    const prive = filtered
-      .filter((e) => e.type === "keluar" && e.category === "Prive pemilik")
-      .reduce((s, e) => s + e.amount, 0);
-    const labaUsaha = labaKotor - biayaOperasional;
-    const kasMasuk = pemasukan;
-    const kasKeluar = pengeluaran;
-    const arusKasBersih = kasMasuk - kasKeluar;
-    // Saldo awal mock: Rp5.000.000
-    const saldoAwal = 5000000;
-    const saldoAkhir = saldoAwal + arusKasBersih;
-
-    return {
-      pemasukan, pengeluaran, penjualan, hppTerjual, labaKotor,
-      biayaOperasional, prive, labaUsaha, kasMasuk, kasKeluar,
-      arusKasBersih, saldoAwal, saldoAkhir,
-    };
-  }, [filtered]);
+  const totalIncome = incomeEntries.reduce((sum, e) => sum + e.amount, 0);
 
   // ── date navigation ──────────────────────────────────────────────────────
 
@@ -505,54 +498,51 @@ export default function KeuanganPage() {
   }
 
   const dateLabel = useMemo(() => {
-    if (tab === "harian") {
-      return `${formatShortDate(currentDate)} - ${formatShortDate(addDays(currentDate, 6))}`;
-    }
+    if (tab === "harian") return formatShortDate(currentDate);
     if (tab === "mingguan") return getWeekLabel(currentDate);
     return formatShortMonth(currentDate);
   }, [tab, currentDate]);
 
-  // ── daily breakdown table ────────────────────────────────────────────────
+  // ── rincian: per hari (harian/mingguan) atau per minggu (bulanan) ───────
 
-  const days = useMemo(() => getDaysInRange(toDate(startDate), toDate(endDate)), [startDate, endDate]);
-
-  const dailyRows = useMemo(() => {
-    return days.map((iso) => {
-      const dayEntries = entries.filter((e) => e.date === iso);
-      const penjualan = dayEntries.filter((e) => e.type === "masuk" && e.category === "Penjualan").reduce((s, e) => s + e.amount, 0);
-      const kasMasuk = dayEntries.filter((e) => e.type === "masuk").reduce((s, e) => s + e.amount, 0);
-      const kasKeluar = dayEntries.filter((e) => e.type === "keluar").reduce((s, e) => s + e.amount, 0);
-      const hpp = dayEntries.filter((e) => e.type === "keluar" && e.category === "Pembelian barang").reduce((s, e) => s + e.amount, 0);
-      const biayaOps = dayEntries.filter((e) => e.type === "keluar" && e.category !== "Pembelian barang" && e.category !== "Prive pemilik").reduce((s, e) => s + e.amount, 0);
-      const labaKotor = penjualan - hpp;
-      const labaUsaha = labaKotor - biayaOps;
-      return { iso, penjualan, kasMasuk, kasKeluar, labaUsaha, hasData: dayEntries.length > 0 };
-    });
-  }, [days, entries]);
+  const dailyRows = useMemo(
+    () =>
+      (report?.breakdown ?? []).map((b) => ({
+        iso: b.start,
+        label: tab === "bulanan"
+          ? `${b.label} · ${formatShortDate(toDate(b.start)).replace(/\s\d{4}$/, "")} - ${formatShortDate(toDate(b.end))}`
+          : formatShortDate(toDate(b.start)),
+        penjualan: b.penjualan,
+        kasMasuk: b.kas_masuk,
+        kasKeluar: b.kas_keluar,
+        labaUsaha: b.laba_usaha,
+        hasData: b.has_data,
+      })),
+    [report, tab]
+  );
 
   // ── operational costs for current period ─────────────────────────────────
 
-  const opCosts = useMemo(() => {
-    return filtered
-      .filter((e) => e.type === "keluar" && e.category !== "Pembelian barang" && e.category !== "Prive pemilik")
-      .slice()
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }, [filtered]);
+  const opCosts = report?.operational_costs ?? [];
+  const totalOpCost = stats.biayaOperasional;
 
-  const totalOpCost = opCosts.reduce((s, e) => s + e.amount, 0);
-
-  // ── weekly tabs (for monthly view) ──────────────────────────────────────
+  // ── pilihan minggu (tab mingguan): minggu-minggu di bulan yang sedang dilihat ─
   const weeksInMonth = useMemo(() => getWeeksInMonth(currentDate), [currentDate]);
+  const selectedWeekStart = isoDate(getMonday(currentDate));
+  const selectedWeekNo = weeksInMonth.findIndex((w) => w.start === selectedWeekStart) + 1;
 
-  // ── warning: pending sales ────────────────────────────────────────────────
-  const pendingSalesWarning = stats.penjualan > 0;
+  // ── warning: penjualan belum lunas (piutang) ─────────────────────────────
+  const pendingSalesWarning = stats.piutang > 0;
 
   // ── the "week" range label ────────────────────────────────────────────────
   const rangeLabel = useMemo(() => {
-    if (tab === "harian") return `${formatShortDate(toDate(startDate))} - ${formatShortDate(addDays(toDate(endDate), 6))} · ${days.length} hari`;
-    if (tab === "mingguan") return `Minggu 2 · ${formatShortDate(toDate(startDate))} - ${formatShortDate(toDate(endDate))}`;
-    return `${formatShortMonth(currentDate)} · ${weeksInMonth.length} minggu`;
-  }, [tab, startDate, endDate, days, currentDate, weeksInMonth]);
+    if (tab === "harian") return formatShortDate(toDate(startDate));
+    if (tab === "mingguan") {
+      const prefix = selectedWeekNo > 0 ? `Minggu ${selectedWeekNo} · ` : "";
+      return `${prefix}${formatShortDate(toDate(startDate))} - ${formatShortDate(toDate(endDate))}`;
+    }
+    return `${formatShortMonth(currentDate)} · ${dailyRows.length} minggu`;
+  }, [tab, startDate, endDate, currentDate, selectedWeekNo, dailyRows.length]);
 
   return (
     <DashboardLayout breadcrumb="Keuangan">
@@ -572,7 +562,7 @@ export default function KeuanganPage() {
             </button>
             <button type="button" className="flex items-center gap-1.5 px-2 text-xs font-semibold text-neutral-700">
               <Calendar className="h-3 w-3 text-neutral-400" />
-              {tab === "harian" ? `${formatShortDate(toDate(startDate))} - ${formatShortDate(addDays(toDate(startDate), 6))}` : tab === "mingguan" ? getWeekLabel(currentDate) : formatShortMonth(currentDate)}
+              {dateLabel}
             </button>
             <button type="button" onClick={() => navigate(1)} className="flex h-6 w-6 items-center justify-center rounded text-neutral-500 hover:bg-neutral-100">
               <ChevronRight className="h-3.5 w-3.5" />
@@ -613,15 +603,14 @@ export default function KeuanganPage() {
       {/* Week selector (mingguan only) */}
       {tab === "mingguan" && (
         <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-          {[0, 1, 2].map((i) => {
-            const mon = addDays(getMonday(new Date(2026, 9, 1)), i * 7);
-            const sun = addDays(mon, 6);
-            const isSelected = i === selectedWeekIdx;
+          {weeksInMonth.map((w, i) => {
+            const mon = w.mon;
+            const isSelected = w.start === selectedWeekStart;
             return (
               <button
-                key={i}
+                key={w.start}
                 type="button"
-                onClick={() => { setSelectedWeekIdx(i); setCurrentDate(mon); }}
+                onClick={() => setCurrentDate(mon)}
                 className={cn(
                   "flex-shrink-0 rounded-xl border px-4 py-3 text-left transition-colors",
                   isSelected ? "border-brand-600 bg-brand-600 text-white" : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"
@@ -644,8 +633,18 @@ export default function KeuanganPage() {
         </div>
       )}
 
+      {error && (
+        <div role="alert" className="mt-4 flex items-center justify-between gap-3 rounded-lg bg-red-50 px-4 py-2.5 text-xs text-red-700">
+          <span className="flex items-center gap-2">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+            {error}
+          </span>
+          <button type="button" onClick={reload} className="font-semibold underline">Coba lagi</button>
+        </div>
+      )}
+
       {/* Stat cards */}
-      <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <div className={cn("mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4 transition-opacity", loading && "opacity-60")} aria-busy={loading}>
         <Card className="p-4">
           <p className="text-[11px] text-neutral-500">Pemasukan</p>
           <p className="mt-1 text-xl font-bold tabular-nums text-neutral-900">{formatRupiah(stats.pemasukan)}</p>
@@ -664,7 +663,7 @@ export default function KeuanganPage() {
         <Card className="p-4">
           <p className="text-[11px] text-neutral-500">Arus kas bersih</p>
           <p className={cn("mt-1 text-xl font-bold tabular-nums", stats.arusKasBersih >= 0 ? "text-green-600" : "text-red-600")}>
-            {formatRupiah(Math.abs(stats.arusKasBersih))}
+            {signedRupiah(stats.arusKasBersih)}
           </p>
           <p className="mt-1 text-[11px] text-neutral-400">Perubahan saldo kas vs pengeluaran</p>
         </Card>
@@ -676,7 +675,7 @@ export default function KeuanganPage() {
         <Card className="p-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-sm font-bold text-neutral-900">Ringkasan laba rugi</h2>
-            <span className="text-[11px] text-neutral-400">Data contoh</span>
+            <span className="text-[11px] text-neutral-400">{loading ? "Memuat..." : dateLabel}</span>
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs">
@@ -718,11 +717,17 @@ export default function KeuanganPage() {
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="text-neutral-600">Penjualan dibayar</span>
-              <span className="tabular-nums font-semibold text-green-600">+ {formatRupiah(stats.penjualan)}</span>
+              <span className="tabular-nums font-semibold text-green-600">+ {formatRupiah(stats.masukPenjualan)}</span>
             </div>
+            {stats.masukLainnya > 0 && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-neutral-600">Pemasukan lain</span>
+                <span className="tabular-nums font-semibold text-green-600">+ {formatRupiah(stats.masukLainnya)}</span>
+              </div>
+            )}
             <div className="flex items-center justify-between text-xs">
               <span className="text-neutral-500">Bayar pemasok</span>
-              <span className="tabular-nums text-red-600">− {formatRupiah(stats.hppTerjual)}</span>
+              <span className="tabular-nums text-red-600">− {formatRupiah(stats.bayarPemasok)}</span>
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-neutral-500">Operasional</span>
@@ -736,7 +741,7 @@ export default function KeuanganPage() {
               <div className="flex items-center justify-between text-xs">
                 <span className="font-semibold text-neutral-700">Arus kas bersih</span>
                 <span className={cn("tabular-nums font-semibold", stats.arusKasBersih >= 0 ? "text-green-600" : "text-red-600")}>
-                  + {formatRupiah(Math.abs(stats.arusKasBersih))}
+                  {signedRupiah(stats.arusKasBersih)}
                 </span>
               </div>
               <div className="mt-2 flex items-center justify-between text-xs">
@@ -750,7 +755,7 @@ export default function KeuanganPage() {
             </div>
           </div>
           <p className="mt-3 text-[11px] text-neutral-400 leading-relaxed">
-            Saldo awal mengikuti saldo akhir dari Minggu 1. Arus kas bersih bisa berbeda dari laba usaha.
+            Saldo awal = saldo akhir periode sebelumnya. Arus kas bersih bisa berbeda dari laba usaha.
           </p>
         </Card>
       </div>
@@ -760,7 +765,7 @@ export default function KeuanganPage() {
         <div className="mt-3 flex items-center gap-2 rounded-lg bg-amber-50 px-4 py-2.5 text-xs text-amber-700">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span>
-            Rp5.000.000 penjualan belum lunas, belum masuk kas.
+            {formatRupiah(stats.piutang)} penjualan belum lunas, belum masuk kas.
           </span>
         </div>
       )}
@@ -785,7 +790,7 @@ export default function KeuanganPage() {
             <tbody>
               {dailyRows.filter((r) => r.hasData).map((row) => (
                 <tr key={row.iso} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50">
-                  <td className="px-4 py-3 text-neutral-700">{formatShortDate(toDate(row.iso))}</td>
+                  <td className="px-4 py-3 text-neutral-700">{row.label}</td>
                   <td className="px-4 py-3 tabular-nums text-right text-neutral-700">{formatRupiah(row.penjualan)}</td>
                   <td className="px-4 py-3 tabular-nums text-right text-neutral-700">{formatRupiah(row.kasMasuk)}</td>
                   <td className="px-4 py-3 tabular-nums text-right text-neutral-700">{formatRupiah(row.kasKeluar)}</td>
@@ -814,7 +819,7 @@ export default function KeuanganPage() {
           </table>
         </div>
         <p className="px-5 py-2 text-[11px] text-neutral-400">
-          * Total terhitung · Klik untuk melihat transaksi berikutnya · 1 Okt tidak ada transaksi
+          * {tab === "bulanan" ? "Minggu" : "Hari"} tanpa transaksi tidak ditampilkan.
         </p>
       </Card>
 
@@ -840,7 +845,7 @@ export default function KeuanganPage() {
               {opCosts.slice(0, 6).map((e) => (
                 <tr key={e.id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50">
                   <td className="px-4 py-3 text-neutral-500">
-                    {new Date(e.date).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}
+                    {toDate(e.date).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}
                   </td>
                   <td className="px-4 py-3 text-neutral-700">{e.description || e.category}</td>
                   <td className="px-4 py-3 text-neutral-500 capitalize">{e.method || "Tunai"}</td>
@@ -856,8 +861,74 @@ export default function KeuanganPage() {
         </div>
       </Card>
 
+      {/* Pemasukan + cari pelanggan */}
+      <Card className="mt-4 p-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-neutral-100">
+          <div>
+            <h2 className="text-sm font-bold text-neutral-900">Pemasukan</h2>
+            <p className="text-[11px] text-neutral-400">
+              {customerQ.trim() ? "Penjualan & pelunasan pelanggan yang dicari" : "Semua kas masuk"} · {rangeLabel}
+            </p>
+          </div>
+          <div className="relative w-full sm:w-64">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" aria-hidden />
+            <input
+              type="search"
+              value={customerQ}
+              onChange={(e) => setCustomerQ(e.target.value)}
+              placeholder="Cari nama / no. HP pelanggan..."
+              aria-label="Cari pelanggan"
+              maxLength={80}
+              className="h-9 w-full rounded-lg border border-neutral-200 bg-white pl-9 pr-3 text-xs text-neutral-900 placeholder:text-neutral-400 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15"
+            />
+          </div>
+        </div>
+        <div className={cn("overflow-x-auto transition-opacity", incomeLoading && "opacity-60")} aria-busy={incomeLoading}>
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="bg-neutral-50 border-b border-neutral-100">
+                <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Tanggal</th>
+                <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Pelanggan</th>
+                <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Keterangan</th>
+                <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Metode</th>
+                <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500 text-right">Jumlah</th>
+              </tr>
+            </thead>
+            <tbody>
+              {incomeEntries.map((e) => (
+                <tr key={e.id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50">
+                  <td className="px-4 py-3 text-neutral-500">
+                    {toDate(e.date).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}
+                  </td>
+                  <td className="px-4 py-3 text-neutral-700">{e.customer_name ?? "—"}</td>
+                  <td className="px-4 py-3 text-neutral-700">
+                    {e.description || e.category}
+                    {e.description && e.description !== e.category && (
+                      <span className="ml-1.5 text-[11px] text-neutral-400">{e.category}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-neutral-500 capitalize">{e.method || "Tunai"}</td>
+                  <td className="px-4 py-3 tabular-nums text-right text-green-600">{formatRupiah(e.amount)}</td>
+                </tr>
+              ))}
+              {incomeEntries.length === 0 && !incomeLoading && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-6 text-center text-neutral-500">
+                    {incomeError || (customerQ.trim() ? "Tidak ada pemasukan dari pelanggan tersebut di periode ini." : "Belum ada pemasukan di periode ini.")}
+                  </td>
+                </tr>
+              )}
+              <tr className="bg-neutral-50 border-t border-neutral-200 font-semibold">
+                <td colSpan={4} className="px-4 py-3 text-neutral-900">Total pemasukan</td>
+                <td className="px-4 py-3 tabular-nums text-right text-green-600">{formatRupiah(totalIncome)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
       {/* Modals */}
-      <CatatModal open={catatOpen} onClose={() => setCatatOpen(false)} onSave={addEntry} />
+      <CatatModal open={catatOpen} onClose={() => setCatatOpen(false)} onSave={handleSave} />
       <UnduhModal open={unduhOpen} onClose={() => setUnduhOpen(false)} dateLabel={dateLabel} />
     </DashboardLayout>
   );

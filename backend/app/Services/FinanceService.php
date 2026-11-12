@@ -1,0 +1,369 @@
+<?php
+
+namespace App\Services;
+
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
+use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Laporan keuangan harian / mingguan / bulanan.
+ *
+ * Sumber kas (buku kas gabungan):
+ *   - sale_payments      -> masuk "Penjualan" (pembayaran pertama) / "Pelunasan piutang" (berikutnya)
+ *   - purchase_payments  -> keluar "Pembelian barang"
+ *   - cash_entries       -> catatan manual admin
+ * Transaksi kasir berstatus batal tidak dihitung.
+ *
+ * Laba rugi memakai basis akrual: penjualan = total nota yang dibuat di periode itu (lunas maupun belum),
+ * HPP = qty terjual x harga beli barang. Arus kas memakai uang yang benar-benar masuk/keluar.
+ *
+ * Aturan PRD 6.6: minggu Senin-Minggu, zona waktu Asia/Jakarta, uang integer rupiah.
+ */
+class FinanceService
+{
+    public const TIMEZONE = 'Asia/Jakarta';
+
+    public const PERIODS = ['harian', 'mingguan', 'bulanan'];
+
+    /** Sama dengan FINANCE_CATEGORIES_IN / _OUT di frontend (lib/data/financeMockData.js). */
+    public const CATEGORIES_IN = ['Penjualan', 'Pelunasan piutang', 'Prive masuk', 'Lainnya'];
+
+    public const CATEGORIES_OUT = [
+        'Biaya operasional', 'Pembelian barang', 'Gaji', 'Listrik & air',
+        'Transportasi', 'Sewa toko', 'Biaya lainnya', 'Prive pemilik',
+    ];
+
+    public const METHODS = ['tunai', 'transfer', 'qris'];
+
+    /** Pengeluaran yang bukan biaya operasional (masuk HPP/persediaan atau pengambilan pemilik). */
+    private const NON_OPERATIONAL = ['Pembelian barang', 'Prive pemilik'];
+
+    private const SALE_CATEGORIES = ['Penjualan', 'Pelunasan piutang'];
+
+    /** @return array{0: CarbonImmutable, 1: CarbonImmutable} tanggal awal & akhir (inklusif) */
+    public function range(string $period, CarbonImmutable $date): array
+    {
+        $date = $date->startOfDay();
+
+        return match ($period) {
+            'harian' => [$date, $date],
+            'mingguan' => [$date->startOfWeek(CarbonInterface::MONDAY), $date->endOfWeek(CarbonInterface::SUNDAY)->startOfDay()],
+            'bulanan' => [$date->startOfMonth(), $date->endOfMonth()->startOfDay()],
+        };
+    }
+
+    public function report(string $period, CarbonImmutable $date): array
+    {
+        [$start, $end] = $this->range($period, $date);
+
+        $entries = $this->entries($start, $end);
+        $sales = $this->salesPerDay($start, $end);
+        $saldoAwal = $this->cashBalanceBefore($start);
+
+        $summary = $this->summarize($entries, $sales);
+        $summary['saldo_awal'] = $saldoAwal;
+        $summary['saldo_akhir'] = $saldoAwal + $summary['arus_kas_bersih'];
+        $summary['piutang'] = $this->receivables($end);
+
+        $breakdown = $this->buckets($period, $start, $end)->map(function (array $b) use ($entries, $sales) {
+            $inBucket = fn ($row) => $row['date'] >= $b['start'] && $row['date'] <= $b['end'];
+            $s = $this->summarize($entries->filter($inBucket), $sales->filter($inBucket));
+
+            return [
+                ...$b,
+                'penjualan' => $s['penjualan'],
+                'kas_masuk' => $s['kas_masuk'],
+                'kas_keluar' => $s['kas_keluar'],
+                'laba_usaha' => $s['laba_usaha'],
+                'has_data' => $s['jumlah_transaksi'] > 0 || $s['kas_masuk'] > 0 || $s['kas_keluar'] > 0,
+            ];
+        })->values();
+
+        return [
+            'period' => ['type' => $period, 'start' => $start->toDateString(), 'end' => $end->toDateString()],
+            'summary' => $summary,
+            'breakdown' => $breakdown,
+            'operational_costs' => $entries
+                ->filter(fn ($e) => $e['type'] === 'keluar' && ! in_array($e['category'], self::NON_OPERATIONAL, true))
+                ->values(),
+        ];
+    }
+
+    /**
+     * Buku kas gabungan pada rentang tanggal, terbaru dulu.
+     * $search mencari nama / no. HP pelanggan; jika diisi, hanya pembayaran penjualan yang dikembalikan
+     * (catatan manual & pembelian tidak punya pelanggan).
+     */
+    public function entries(CarbonImmutable $start, CarbonImmutable $end, ?string $type = null, ?string $search = null): Collection
+    {
+        $search = trim((string) $search);
+        $range = [$start->toDateString(), $end->toDateString()];
+
+        $rows = collect();
+
+        if ($type !== 'keluar') {
+            $rows = $rows->concat($this->salePaymentRows($range, $search));
+        }
+
+        if ($search === '') {
+            if ($type !== 'masuk') {
+                $rows = $rows->concat($this->purchasePaymentRows($range));
+            }
+            $rows = $rows->concat($this->cashEntryRows($range, $type));
+        }
+
+        return $rows->sortBy([['date', 'desc'], ['sort_key', 'desc']])
+            ->map(function ($r) {
+                unset($r['sort_key']);
+
+                return $r;
+            })
+            ->values();
+    }
+
+    /** Bentuk baris buku kas untuk satu catatan manual (dipakai respons POST). */
+    public function cashEntryRow(object $e): array
+    {
+        return [
+            'id' => 'manual-'.$e->id,
+            'source' => 'manual',
+            'type' => $e->type,
+            'category' => $e->category,
+            'amount' => (int) $e->amount,
+            'date' => substr((string) $e->entry_date, 0, 10),
+            'method' => $e->method,
+            'description' => $e->description,
+            'reference' => null,
+            'customer_name' => null,
+            'created_by' => $e->created_by ?? null,
+            'sort_key' => (string) $e->created_at,
+        ];
+    }
+
+    // ── sumber data ─────────────────────────────────────────────────────────
+
+    private function salePaymentRows(array $range, string $search): Collection
+    {
+        $date = $this->localDate('sp.paid_at');
+
+        $query = DB::table('sale_payments as sp')
+            ->join('sales as s', 's.id', '=', 'sp.sale_id')
+            ->leftJoin('customers as c', 'c.id', '=', 's.customer_id')
+            ->leftJoin('users as u', 'u.id', '=', 'sp.user_id')
+            ->where('s.payment_status', '<>', 'batal')
+            ->whereRaw("$date between ? and ?", $range)
+            ->selectRaw("sp.id, $date as date, sp.amount, sp.method, sp.paid_at, s.invoice_no,
+                coalesce(c.name, s.customer_name) as customer_name, u.name as created_by,
+                not exists (select 1 from sale_payments p2 where p2.sale_id = sp.sale_id and p2.id < sp.id) as is_first");
+
+        if ($search !== '') {
+            $this->applyCustomerSearch($query, $search);
+        }
+
+        return $query->get()->map(function ($r) {
+            $first = (bool) $r->is_first;
+
+            return [
+                'id' => 'sale-payment-'.$r->id,
+                'source' => 'penjualan',
+                'type' => 'masuk',
+                'category' => $first ? 'Penjualan' : 'Pelunasan piutang',
+                'amount' => (int) $r->amount,
+                'date' => (string) $r->date,
+                'method' => $r->method,
+                'description' => ($first ? 'Penjualan #' : 'Pelunasan #').$r->invoice_no,
+                'reference' => $r->invoice_no,
+                'customer_name' => $r->customer_name ?? 'Pelanggan umum',
+                'created_by' => $r->created_by,
+                'sort_key' => (string) $r->paid_at,
+            ];
+        });
+    }
+
+    private function purchasePaymentRows(array $range): Collection
+    {
+        return DB::table('purchase_payments as pp')
+            ->join('purchases as p', 'p.id', '=', 'pp.purchase_id')
+            ->join('suppliers as sup', 'sup.id', '=', 'p.supplier_id')
+            ->leftJoin('users as u', 'u.id', '=', 'pp.user_id')
+            ->whereBetween('pp.paid_at', $range)
+            ->select('pp.id', 'pp.paid_at', 'pp.amount', 'pp.method', 'pp.created_at', 'p.purchase_no', 'sup.name as supplier_name', 'u.name as created_by')
+            ->get()
+            ->map(fn ($r) => [
+                'id' => 'purchase-payment-'.$r->id,
+                'source' => 'pembelian',
+                'type' => 'keluar',
+                'category' => 'Pembelian barang',
+                'amount' => (int) $r->amount,
+                'date' => substr((string) $r->paid_at, 0, 10),
+                'method' => $r->method === 'transfer_bank' ? 'transfer' : $r->method,
+                'description' => "Bayar {$r->supplier_name} #{$r->purchase_no}",
+                'reference' => $r->purchase_no,
+                'customer_name' => null,
+                'created_by' => $r->created_by,
+                'sort_key' => (string) $r->created_at,
+            ]);
+    }
+
+    private function cashEntryRows(array $range, ?string $type): Collection
+    {
+        return DB::table('cash_entries as ce')
+            ->leftJoin('users as u', 'u.id', '=', 'ce.user_id')
+            ->whereBetween('ce.entry_date', $range)
+            ->when($type, fn ($q) => $q->where('ce.type', $type))
+            ->select('ce.*', 'u.name as created_by')
+            ->get()
+            ->map(fn ($r) => $this->cashEntryRow($r));
+    }
+
+    /** Penjualan (akrual) dan HPP per tanggal lokal, dari nota yang tidak batal. */
+    private function salesPerDay(CarbonImmutable $start, CarbonImmutable $end): Collection
+    {
+        $date = $this->localDate('s.created_at');
+        $range = [$start->toDateString(), $end->toDateString()];
+
+        $totals = DB::table('sales as s')
+            ->where('s.payment_status', '<>', 'batal')
+            ->whereRaw("$date between ? and ?", $range)
+            ->groupByRaw('1')
+            ->selectRaw("$date as date, sum(s.total) as total, count(*) as jumlah")
+            ->get()->keyBy('date');
+
+        $hpp = DB::table('sale_items as si')
+            ->join('sales as s', 's.id', '=', 'si.sale_id')
+            ->join('products as pr', 'pr.id', '=', 'si.product_id')
+            ->where('s.payment_status', '<>', 'batal')
+            ->whereRaw("$date between ? and ?", $range)
+            ->groupByRaw('1')
+            ->selectRaw("$date as date, sum(si.qty * pr.buy_price) as hpp")
+            ->get()->keyBy('date');
+
+        return $totals->map(fn ($t, $d) => [
+            'date' => (string) $d,
+            'total' => (int) $t->total,
+            'jumlah' => (int) $t->jumlah,
+            'hpp' => (int) ($hpp[$d]->hpp ?? 0),
+        ])->values();
+    }
+
+    /** Saldo kas = akumulasi semua kas masuk - kas keluar sebelum tanggal $start. */
+    private function cashBalanceBefore(CarbonImmutable $start): int
+    {
+        $before = $start->toDateString();
+        $saleDate = $this->localDate('sp.paid_at');
+
+        $salesIn = DB::table('sale_payments as sp')
+            ->join('sales as s', 's.id', '=', 'sp.sale_id')
+            ->where('s.payment_status', '<>', 'batal')
+            ->whereRaw("$saleDate < ?", [$before])
+            ->sum('sp.amount');
+
+        $purchaseOut = DB::table('purchase_payments')->where('paid_at', '<', $before)->sum('amount');
+
+        $manual = DB::table('cash_entries')
+            ->where('entry_date', '<', $before)
+            ->selectRaw("coalesce(sum(case when type = 'masuk' then amount else -amount end), 0) as net")
+            ->value('net');
+
+        return (int) $salesIn - (int) $purchaseOut + (int) $manual;
+    }
+
+    /** Sisa tagihan nota belum lunas yang dibuat sampai akhir periode (posisi pembayaran saat ini). */
+    private function receivables(CarbonImmutable $end): int
+    {
+        return (int) DB::table('sales as s')
+            ->where('s.payment_status', 'belum_lunas')
+            ->whereRaw($this->localDate('s.created_at').' <= ?', [$end->toDateString()])
+            ->sum(DB::raw('s.total - s.paid_amount'));
+    }
+
+    // ── perhitungan ─────────────────────────────────────────────────────────
+
+    private function summarize(Collection $entries, Collection $sales): array
+    {
+        $sum = fn (callable $filter) => (int) $entries->filter($filter)->sum('amount');
+
+        $kasMasuk = $sum(fn ($e) => $e['type'] === 'masuk');
+        $kasKeluar = $sum(fn ($e) => $e['type'] === 'keluar');
+        $masukPenjualan = $sum(fn ($e) => $e['type'] === 'masuk' && in_array($e['category'], self::SALE_CATEGORIES, true));
+
+        // Penjualan manual (di luar kasir) ikut dihitung sebagai penjualan, tanpa HPP karena barangnya tidak diketahui
+        $penjualanManual = $sum(fn ($e) => $e['source'] === 'manual' && $e['category'] === 'Penjualan');
+        $penjualan = (int) $sales->sum('total') + $penjualanManual;
+        $hpp = (int) $sales->sum('hpp');
+        $biayaOperasional = $sum(fn ($e) => $e['type'] === 'keluar' && ! in_array($e['category'], self::NON_OPERATIONAL, true));
+        $labaKotor = $penjualan - $hpp;
+
+        return [
+            'pemasukan' => $kasMasuk,
+            'pengeluaran' => $kasKeluar,
+            'penjualan' => $penjualan,
+            'hpp' => $hpp,
+            'laba_kotor' => $labaKotor,
+            'biaya_operasional' => $biayaOperasional,
+            'laba_usaha' => $labaKotor - $biayaOperasional,
+            'kas_masuk' => $kasMasuk,
+            'kas_keluar' => $kasKeluar,
+            'masuk_penjualan' => $masukPenjualan,
+            'masuk_lainnya' => $kasMasuk - $masukPenjualan,
+            'bayar_pemasok' => $sum(fn ($e) => $e['type'] === 'keluar' && $e['category'] === 'Pembelian barang'),
+            'prive' => $sum(fn ($e) => $e['type'] === 'keluar' && $e['category'] === 'Prive pemilik'),
+            'arus_kas_bersih' => $kasMasuk - $kasKeluar,
+            'jumlah_transaksi' => (int) $sales->sum('jumlah'),
+        ];
+    }
+
+    /** Baris rincian: per hari untuk harian/mingguan, per minggu (Senin-Minggu, dipotong batas bulan) untuk bulanan. */
+    private function buckets(string $period, CarbonImmutable $start, CarbonImmutable $end): Collection
+    {
+        $buckets = collect();
+
+        if ($period !== 'bulanan') {
+            for ($d = $start; $d->lte($end); $d = $d->addDay()) {
+                $buckets->push(['start' => $d->toDateString(), 'end' => $d->toDateString(), 'label' => $d->toDateString()]);
+            }
+
+            return $buckets;
+        }
+
+        $n = 1;
+        for ($mon = $start->startOfWeek(CarbonInterface::MONDAY); $mon->lte($end); $mon = $mon->addWeek()) {
+            $from = $mon->max($start);
+            $to = $mon->addDays(6)->min($end);
+            $buckets->push(['start' => $from->toDateString(), 'end' => $to->toDateString(), 'label' => 'Minggu '.$n++]);
+        }
+
+        return $buckets;
+    }
+
+    // ── util SQL ────────────────────────────────────────────────────────────
+
+    /** Kolom TIMESTAMP (disimpan dalam zona app.timezone) -> tanggal lokal Asia/Jakarta. */
+    private function localDate(string $column): string
+    {
+        $storeTz = config('app.timezone');
+        if (! in_array($storeTz, timezone_identifiers_list(), true)) {
+            $storeTz = 'UTC';
+        }
+
+        return "(({$column} at time zone '{$storeTz}') at time zone '".self::TIMEZONE."')::date";
+    }
+
+    /** Cocokkan nama pelanggan (tanpa beda huruf besar/kecil) atau no. HP (hanya angka, abaikan spasi/strip). */
+    private function applyCustomerSearch(Builder $query, string $search): void
+    {
+        $escape = fn (string $v) => str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $v);
+        $digits = preg_replace('/\D/', '', $search);
+
+        $query->where(function (Builder $w) use ($search, $digits, $escape) {
+            $w->whereRaw('lower(coalesce(c.name, s.customer_name, \'\')) like ?', ['%'.$escape(mb_strtolower($search)).'%']);
+
+            if (strlen($digits) >= 3) {
+                $w->orWhereRaw("regexp_replace(coalesce(c.phone, ''), '[^0-9]', '', 'g') like ?", ['%'.$digits.'%']);
+            }
+        });
+    }
+}
