@@ -1,6 +1,7 @@
 /* Gaya cetak struk & faktur. Diimpor di baris paling atas index.css. */
 @page invoice { size: A4; margin: 12mm; }
-@page receipt { size: 58mm auto; margin: 2mm; }
+/* Kertas thermal 58mm: area cetak printer 48mm (384 dot), sisa 5mm kiri-kanan diatur lewat padding */
+@page receipt { size: 58mm auto; margin: 0; }
 
 @media print {
   body * { visibility: hidden; }
@@ -12,7 +13,18 @@
   body[data-print="receipt"] .print-receipt, body[data-print="receipt"] .print-receipt *,
   body[data-print="invoice"] .print-invoice, body[data-print="invoice"] .print-invoice * { visibility: visible; }
   body[data-print] .print-receipt, body[data-print] .print-invoice { position: absolute; left: 0; top: 0; }
-  .print-receipt { page: receipt; width: 58mm; }
+  .print-receipt { page: receipt; width: 58mm; padding: 3mm 5mm; box-sizing: border-box; }
+  /* Struk cetak: lebar penuh 48mm, tanpa bingkai/latar, teks hitam pekat & padat untuk thermal */
+  .print-receipt > div {
+    width: 100% !important; max-width: none !important; margin: 0 !important;
+    padding: 0 !important; border: 0 !important; background: transparent !important;
+    font-size: 8pt; line-height: 1.3;
+  }
+  .print-receipt * { color: #000 !important; }
+  .print-receipt h3 { font-size: 10pt; line-height: 1.2; }
+  .print-receipt hr { border-color: #000; border-top-style: dashed; margin: 1.5mm 0; }
+  .print-receipt .space-y-3 > * + * { margin-top: 1.5mm; }
+  .print-receipt .space-y-2 > * + * { margin-top: 1mm; }
   .print-invoice { page: invoice; width: 100%; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   /* Faktur panjang: kepala tabel berulang tiap halaman, baris & blok total tidak terpotong */
   .print-invoice thead { display: table-header-group; }

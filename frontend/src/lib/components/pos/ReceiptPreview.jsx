@@ -3,20 +3,23 @@ import { remainingOf, statusOf, unitsOf } from "../../utils/transaction";
 
 const Row = ({ l, r, bold, red }) => (
   <div className={`flex justify-between gap-2 ${bold ? "font-bold text-neutral-900" : "text-neutral-600"}`}>
-    <span>{l}</span>
-    <span className={`font-mono ${red ? "text-red-600" : ""}`}>{r}</span>
+    <span className="min-w-0 break-words">{l}</span>
+    <span className={`shrink-0 whitespace-nowrap font-mono ${red ? "text-red-600" : ""}`}>{r}</span>
   </div>
 );
 const Hr = () => <hr className="border-neutral-200" />;
 
-/** Struk. Dipakai di preview layar, detail Riwayat, dan area cetak. */
+/**
+ * Struk thermal 58mm. Dipakai di preview layar, detail Riwayat, dan area cetak.
+ * Lebar preview = lebar kertas 58mm (padding 5mm -> area cetak 48mm), gaya cetak di styles/print.css.
+ */
 export default function ReceiptPreview({ tx }) {
   const STORE = getStoreProfile();
   const remaining = remainingOf(tx);
   return (
-    <div className="mx-auto w-full max-w-[420px] space-y-3 border border-neutral-200 bg-[#fbfaf7] p-5 text-xs">
+    <div className="mx-auto w-[58mm] max-w-full space-y-3 break-words border border-neutral-200 bg-[#fbfaf7] px-[5mm] py-4 text-[11px] leading-snug">
       <div className="text-center">
-        <h3 className="text-lg font-bold text-neutral-900">{STORE.name}</h3>
+        <h3 className="text-sm font-bold text-neutral-900">{STORE.name}</h3>
         <p className="text-neutral-500">{STORE.addressShort}</p>
         <p className="text-neutral-500">{STORE.phone}</p>
       </div>
