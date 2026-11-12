@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { CalendarDays, ChevronDown, PackageCheck, Plus, Search, Info } from "lucide-react";
+import { ChevronDown, PackageCheck, Plus, Search, Info } from "lucide-react";
 import AdminShell from "../lib/components/layout/AdminShell";
 import { Button, Card } from "../lib/components/ui";
 import PaymentModal from "../lib/components/purchase/PaymentModal";
+import PeriodFilter, { ALL_PERIOD, defaultPeriod, inPeriod } from "../lib/components/purchase/PeriodFilter";
 import { cn } from "../lib/utils/cn";
 import { formatRupiah } from "../lib/utils/format";
 import {
@@ -44,6 +45,7 @@ export default function PembelianBarangMasuk() {
 
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
+  const [period, setPeriod] = useState(defaultPeriod);
   const [selectedId, setSelectedId] = useState(null);
 
   const filtered = useMemo(() => {
@@ -53,9 +55,10 @@ export default function PembelianBarangMasuk() {
         return false;
       }
       if (status && p.status !== status) return false;
+      if (!inPeriod(p.date, period)) return false;
       return true;
     });
-  }, [purchases, query, status]);
+  }, [purchases, query, status, period]);
 
   const selected = filtered.find((p) => p.id === selectedId) ?? filtered[0] ?? null;
   const S = PURCHASE_SUMMARY;
@@ -111,6 +114,7 @@ export default function PembelianBarangMasuk() {
               onClick={() => {
                 setQuery("");
                 setStatus("");
+                setPeriod(ALL_PERIOD);
               }}
               className="text-[11px] font-semibold text-brand-700 hover:underline"
             >
@@ -133,14 +137,7 @@ export default function PembelianBarangMasuk() {
                 className="h-10 w-full rounded-lg border border-neutral-200 bg-white pl-9 pr-3 text-xs placeholder:text-neutral-400 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15"
               />
             </div>
-            {/* TODO: filter periode belum berfungsi (mock hanya berisi Oktober 2026) */}
-            <button
-              type="button"
-              className="flex h-10 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50"
-            >
-              <CalendarDays className="h-3.5 w-3.5 text-neutral-500" aria-hidden />
-              Oktober 2026
-            </button>
+            <PeriodFilter value={period} onChange={setPeriod} />
             <div className="relative">
               <select
                 aria-label="Filter status penerimaan"
