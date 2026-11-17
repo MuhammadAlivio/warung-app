@@ -1,10 +1,16 @@
+import { api } from "../api";
+
 const p2 = (x) => String(x).padStart(2, "0");
 
 export const formatAngka = (n = 0) => new Intl.NumberFormat("id-ID").format(Math.round(n));
 // Format Rupiah memakai util milik proyek (lib/utils/format.js): "Rp68.000", negatif "-Rp68.000".
 export { formatRupiah } from "./format";
 
-/** Profil toko dari Pengaturan Profil Toko (localStorage "warung.storeProfile"); dipakai di struk & faktur. */
+/**
+ * Profil toko dari Pengaturan Profil Toko; dipakai di struk & faktur.
+ * Sumbernya database (/api/store-profile). Salinannya disimpan di localStorage "warung.storeProfile"
+ * supaya getStoreProfile() tetap sinkron saat struk dirender; salinan diperbarui setiap login dan setiap admin menyimpan.
+ */
 const PROFILE_KEY = "warung.storeProfile";
 const DEFAULT_PROFILE = { name: "U. D. Lestari", phone: "022-7301234", address: "Jl. KH. Mas Mansyur No.40, RT.002/RW.010,", logo: "" };
 export function getStoreProfile() {
@@ -16,6 +22,42 @@ export function getStoreProfile() {
     /* pakai profil bawaan */
   }
   return { name: p.name, address: p.address, addressShort: p.address, phone: p.phone ? `Telp. ${p.phone}` : "", logo: p.logo };
+}
+
+/** Profil dari API -> bentuk form/salinan lokal { name, phone, address, logo }. logo = URL gambar atau "". */
+export const storeProfileFromApi = (d) => ({ name: d.name ?? "", phone: d.phone ?? "", address: d.address ?? "", logo: d.logo_url ?? "" });
+
+export function cacheStoreProfile(profile) {
+  try {
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  } catch {
+    /* penyimpanan browser penuh/diblokir: struk memakai salinan lama atau profil bawaan */
+  }
+}
+
+/** Ambil profil dari server lalu perbarui salinan lokal. */
+export async function refreshStoreProfile() {
+  const res = await api("/api/store-profile");
+  const profile = storeProfileFromApi(res.data);
+  cacheStoreProfile(profile);
+  return profile;
+}
+
+/**
+ * Simpan profil (khusus admin). logoFile opsional: tanpa file, logo lama dipertahankan.
+ * removeLogo = true menghapus logo (diabaikan bila ada logoFile).
+ */
+export async function saveStoreProfile({ name, phone, address }, logoFile, removeLogo = false) {
+  const form = new FormData();
+  form.append("name", name ?? "");
+  form.append("phone", phone ?? "");
+  form.append("address", address ?? "");
+  if (logoFile) form.append("logo", logoFile);
+  else if (removeLogo) form.append("remove_logo", "1");
+  const res = await api("/api/store-profile", { method: "POST", body: form });
+  const profile = storeProfileFromApi(res.data);
+  cacheStoreProfile(profile);
+  return profile;
 }
 
 export const formatTanggal = (d = new Date(), long = false) =>

@@ -4,12 +4,15 @@ import {
   Bell,
   Info,
   SlidersHorizontal,
+  Trash2,
   Upload,
 } from "lucide-react";
 import DashboardLayout from "../lib/components/layout/DashboardLayout";
 import { Button, Input, Textarea } from "../lib/components/ui";
 import { cn } from "../lib/utils/cn";
+import { refreshStoreProfile, saveStoreProfile } from "../lib/utils/pos";
 
+// Salinan lokal profil dari server (lib/utils/pos.js); hanya untuk tampilan awal sebelum data server termuat.
 const STORAGE_KEY = "warung.storeProfile";
 
 const DEFAULT_PROFILE = {
@@ -38,10 +41,36 @@ function loadProfile() {
 
 export default function PengaturanProfilToko() {
   const [profile, setProfile] = useState(loadProfile);
+  const [serverProfile, setServerProfile] = useState(null); // data terakhir dari server, untuk tombol Batal
+  const [logoFile, setLogoFile] = useState(null); // logo baru yang belum disimpan
+  const [removeLogo, setRemoveLogo] = useState(false); // logo dihapus, berlaku saat disimpan
+  const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [logoError, setLogoError] = useState("");
   const fileRef = useRef(null);
+
+  // Muat profil dari server
+  useEffect(() => {
+    let active = true;
+
+    refreshStoreProfile()
+      .then((data) => {
+        if (!active) return;
+        setProfile(data);
+        setServerProfile(data);
+      })
+      .catch((err) => {
+        if (active) setLogoError(err.message || "Profil toko gagal dimuat.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Hilangkan notifikasi sukses setelah beberapa detik.
   useEffect(() => {
@@ -82,7 +111,10 @@ export default function PengaturanProfilToko() {
     }
 
     setLogoError("");
+    setLogoFile(file);
+    setRemoveLogo(false);
 
+    // Pratinjau langsung; file aslinya baru dikirim saat "Simpan Perubahan"
     const reader = new FileReader();
 
     reader.onload = () => {
@@ -103,27 +135,46 @@ export default function PengaturanProfilToko() {
     reader.readAsDataURL(file);
   };
 
-  const handleReset = () => {
-    setProfile(loadProfile());
+  // Logo kembali ke tampilan bawaan; benar-benar terhapus setelah "Simpan Perubahan"
+  const handleRemoveLogo = () => {
+    setProfile((current) => ({
+      ...current,
+      logo: "",
+    }));
+
+    setLogoFile(null);
+    setRemoveLogo(true);
     setLogoError("");
     setSaved(false);
   };
 
-  const handleSubmit = (event) => {
+  const handleReset = () => {
+    setProfile(serverProfile ?? loadProfile());
+    setLogoFile(null);
+    setRemoveLogo(false);
+    setLogoError("");
+    setSaved(false);
+  };
+
+  const handleSubmit = async (event) => {
     event.preventDefault();
     setSaving(true);
     setSaved(false);
+    setLogoError("");
 
     try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify(profile)
-      );
+      const data = await saveStoreProfile(profile, logoFile, removeLogo);
 
+      setProfile(data);
+      setServerProfile(data);
+      setLogoFile(null);
+      setRemoveLogo(false);
       setSaved(true);
-    } catch {
+    } catch (err) {
+      const firstFieldError = err.data?.errors && Object.values(err.data.errors)[0]?.[0];
+
       setLogoError(
-        "Profil gagal disimpan. Coba gunakan logo dengan ukuran lebih kecil."
+        firstFieldError || err.message || "Profil gagal disimpan. Coba lagi."
       );
     } finally {
       setSaving(false);
@@ -230,19 +281,38 @@ export default function PengaturanProfilToko() {
                   onChange={handleLogoChange}
                 />
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  fullWidth={false}
-                  onClick={() => fileRef.current?.click()}
-                >
-                  <Upload
-                    className="h-3.5 w-3.5"
-                    aria-hidden="true"
-                  />
-                  Ganti Logo
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    fullWidth={false}
+                    onClick={() => fileRef.current?.click()}
+                  >
+                    <Upload
+                      className="h-3.5 w-3.5"
+                      aria-hidden="true"
+                    />
+                    Ganti Logo
+                  </Button>
+
+                  {profile.logo && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      fullWidth={false}
+                      className="text-red-600 hover:bg-red-50"
+                      onClick={handleRemoveLogo}
+                    >
+                      <Trash2
+                        className="h-3.5 w-3.5"
+                        aria-hidden="true"
+                      />
+                      Hapus Logo
+                    </Button>
+                  )}
+                </div>
 
                 <p className="mt-2 max-w-[320px] text-[11px] leading-relaxed text-neutral-500">
                   PNG atau JPG, maksimal 2 MB. Disarankan ukuran
@@ -346,7 +416,7 @@ export default function PengaturanProfilToko() {
                 fullWidth={false}
                 className={cn("h-10 px-5")}
                 loading={saving}
-                disabled={saving}
+                disabled={saving || loading}
               >
                 Simpan Perubahan
               </Button>

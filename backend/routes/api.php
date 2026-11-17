@@ -8,6 +8,7 @@ use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\FinanceController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SaleController;
+use App\Http\Controllers\StoreProfileController;
 use App\Http\Controllers\TwoFactorController;
 use App\Http\Middleware\EnsureActive;
 use App\Http\Middleware\LogActivity;
@@ -48,6 +49,10 @@ Route::middleware(['auth:sanctum', EnsureActive::class, LogActivity::class])->gr
     Route::post('/sales/{sale}/payments', [SaleController::class, 'addPayment'])->whereNumber('sale');
     Route::post('/sales/{sale}/cancel', [SaleController::class, 'cancel'])->whereNumber('sale');
 
+    // Profil toko: dibaca admin & kasir untuk struk dan faktur
+    Route::get('/store-profile', [StoreProfileController::class, 'show']);
+    Route::get('/store-profile/logo', [StoreProfileController::class, 'logo']);
+
     // Khusus admin
     Route::middleware('role:admin')->group(function () {
         Route::apiResource('employees', EmployeeController::class)->only(['store', 'update']);
@@ -57,5 +62,8 @@ Route::middleware(['auth:sanctum', EnsureActive::class, LogActivity::class])->gr
         Route::get('/finance/report', [FinanceController::class, 'report']);
         Route::get('/finance/entries', [FinanceController::class, 'entries']);
         Route::post('/finance/entries', [FinanceController::class, 'store']);
+
+        // Pengaturan Profil Toko
+        Route::post('/store-profile', [StoreProfileController::class, 'update']);
     });
 });

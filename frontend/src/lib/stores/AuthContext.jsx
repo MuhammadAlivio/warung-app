@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import { refreshStoreProfile } from "../utils/pos";
 
 const AuthContext = createContext(null);
 
@@ -12,6 +13,12 @@ export function AuthProvider({ children }) {
       .then((res) => setUser(res.user))
       .catch(() => setUser(null));
   }, []);
+
+  // Profil toko untuk struk & faktur diambil sekali setiap login (gagal = tetap pakai salinan terakhir)
+  const userId = user?.id;
+  useEffect(() => {
+    if (userId) refreshStoreProfile().catch(() => {});
+  }, [userId]);
 
   const logout = useCallback(async () => {
     try {
