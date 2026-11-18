@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   AlertCircle,
   Calendar,
@@ -9,13 +10,24 @@ import {
   FileText,
   Plus,
   Search,
+  Trash2,
   X,
 } from "lucide-react";
 import DashboardLayout from "../lib/components/layout/DashboardLayout";
+import FinanceCharts from "../lib/components/finance/FinanceCharts";
 import { Button, Card } from "../lib/components/ui";
+import Pagination from "../lib/components/ui/Pagination";
 import { formatRupiah } from "../lib/utils/format";
 import { cn } from "../lib/utils/cn";
-import { createFinanceEntry, useFinanceEntries, useFinanceReport } from "../lib/hooks/useFinance";
+import { getStoreProfile } from "../lib/utils/pos";
+import {
+  createFinanceEntry,
+  deleteFinanceEntry,
+  downloadFinanceReport,
+  updateFinanceEntry,
+  useFinanceEntries,
+  useFinanceReport,
+} from "../lib/hooks/useFinance";
 import {
   FINANCE_CATEGORIES_IN,
   FINANCE_CATEGORIES_OUT,
@@ -86,7 +98,8 @@ function getWeeksInMonth(d) {
 
 // ── Catat Modal ──────────────────────────────────────────────────────────────
 
-function CatatModal({ open, onClose, onSave }) {
+/** Catat baru, atau ubah/hapus catatan manual bila `entry` (baris buku kas) diisi. */
+function CatatModal({ open, onClose, onSave, entry = null, onDelete }) {
   const [jenis, setJenis] = useState("keluar");
   const [jenisTipe, setJenisTipe] = useState("");
   const [category, setCategory] = useState("");
@@ -96,6 +109,41 @@ function CatatModal({ open, onClose, onSave }) {
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteReason, setDeleteReason] = useState("");
+
+  // Isi form setiap kali modal dibuka: data catatan (mode ubah) atau kosong (catat baru)
+  useEffect(() => {
+    if (!open) return;
+    setJenis(entry?.type ?? "keluar");
+    setCategory(entry?.category ?? "");
+    setAmount(entry ? String(entry.amount) : "");
+    setDate(entry?.date ?? isoDate(new Date()));
+    setMethod(entry?.method ?? "tunai");
+    setDescription(entry?.description ?? "");
+    setJenisTipe("");
+    setError("");
+    setConfirmDelete(false);
+    setDeleteReason("");
+  }, [open, entry]);
+
+  async function handleDelete() {
+    if (deleteReason.trim().length < 5) {
+      setError("Alasan penghapusan wajib diisi (min. 5 karakter).");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await onDelete(deleteReason.trim());
+      onClose();
+    } catch (err) {
+      const firstFieldError = err.data?.errors && Object.values(err.data.errors)[0]?.[0];
+      setError(firstFieldError || err.message || "Gagal menghapus catatan.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const OUT_TYPES = [
     { value: "biaya_operasional", label: "Biaya operasional" },
@@ -117,7 +165,6 @@ function CatatModal({ open, onClose, onSave }) {
     setError("");
     try {
       await onSave({ type: jenis, category, amount: Number(amount), date, description, method });
-      setAmount(""); setDescription(""); setCategory(""); setJenisTipe("");
       onClose();
     } catch (err) {
       const firstFieldError = err.data?.errors && Object.values(err.data.errors)[0]?.[0];
@@ -139,8 +186,10 @@ function CatatModal({ open, onClose, onSave }) {
       <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-neutral-100 px-5 py-4">
           <div>
-            <h2 className="text-sm font-bold text-neutral-900">Catat masuk / keluar</h2>
-            <p className="text-[11px] text-neutral-400">Catat transaksi kas di luar penjualan dan pembelian.</p>
+            <h2 className="text-sm font-bold text-neutral-900">{entry ? "Ubah catatan kas" : "Catat masuk / keluar"}</h2>
+            <p className="text-[11px] text-neutral-400">
+              {entry ? `Dicatat oleh ${entry.created_by ?? "—"}.` : "Catat transaksi kas di luar penjualan dan pembelian."}
+            </p>
           </div>
           <button
             type="button"
@@ -284,6 +333,30 @@ function CatatModal({ open, onClose, onSave }) {
               </div>
             )}
 
+            {confirmDelete && (
+              <div className="space-y-2 rounded-lg border border-red-200 bg-red-50/60 p-3">
+                <p className="text-xs font-semibold text-red-700">Hapus catatan ini?</p>
+                <p className="text-[11px] text-red-600">Catatan tidak lagi dihitung di laporan. Jejak dan alasannya tetap tersimpan.</p>
+                <textarea
+                  value={deleteReason}
+                  onChange={(e) => setDeleteReason(e.target.value)}
+                  rows={2}
+                  maxLength={300}
+                  placeholder="Alasan penghapusan, mis. salah input nominal"
+                  aria-label="Alasan penghapusan"
+                  className="w-full resize-none rounded-lg border border-red-200 bg-white px-3 py-2 text-xs text-neutral-900 placeholder:text-neutral-400 focus:border-red-500 focus:outline-none focus:ring-4 focus:ring-red-500/15"
+                />
+                <div className="flex justify-end gap-2">
+                  <button type="button" onClick={() => { setConfirmDelete(false); setError(""); }} className="h-8 rounded-lg px-3 text-xs font-semibold text-neutral-600 hover:bg-white">
+                    Batal hapus
+                  </button>
+                  <button type="button" onClick={handleDelete} disabled={saving} className="h-8 rounded-lg bg-red-600 px-3 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60">
+                    {saving ? "Menghapus..." : "Hapus catatan"}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {error && (
               <p role="alert" className="flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2.5 text-xs text-red-700">
                 <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -293,6 +366,17 @@ function CatatModal({ open, onClose, onSave }) {
           </div>
 
           <div className="flex gap-2 border-t border-neutral-100 px-5 py-4">
+            {entry && !confirmDelete && (
+              <button
+                type="button"
+                onClick={() => { setConfirmDelete(true); setError(""); }}
+                aria-label="Hapus catatan"
+                className="flex h-10 items-center justify-center gap-1.5 rounded-lg border border-red-200 px-3 text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Hapus
+              </button>
+            )}
             <button
               type="button"
               onClick={onClose}
@@ -302,10 +386,10 @@ function CatatModal({ open, onClose, onSave }) {
             </button>
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || confirmDelete}
               className="flex h-10 flex-1 items-center justify-center rounded-lg bg-brand-600 text-xs font-semibold text-white hover:bg-brand-700 transition-colors disabled:opacity-60"
             >
-              {saving ? "Menyimpan..." : "Simpan"}
+              {saving && !confirmDelete ? "Menyimpan..." : entry ? "Simpan perubahan" : "Simpan"}
             </button>
           </div>
         </form>
@@ -316,10 +400,45 @@ function CatatModal({ open, onClose, onSave }) {
 
 // ── Unduh Modal ──────────────────────────────────────────────────────────────
 
-function UnduhModal({ open, onClose, dateLabel }) {
+const MAX_EXPORT_DAYS = 366;
+
+/** Unduh laporan PDF / Excel. Rentang awal = periode yang sedang dilihat. */
+function UnduhModal({ open, onClose, defaultStart, defaultEnd }) {
   const [format, setFormat] = useState("pdf");
-  const [startDate, setStartDate] = useState("2026-10-01");
-  const [endDate, setEndDate] = useState("2026-10-17");
+  const [startDate, setStartDate] = useState(defaultStart);
+  const [endDate, setEndDate] = useState(defaultEnd);
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState("");
+  const storeName = open ? getStoreProfile().name : "";
+
+  useEffect(() => {
+    if (!open) return;
+    setStartDate(defaultStart);
+    setEndDate(defaultEnd);
+    setError("");
+  }, [open, defaultStart, defaultEnd]);
+
+  const rangeError = !startDate || !endDate
+    ? "Isi tanggal mulai dan tanggal akhir."
+    : startDate > endDate
+      ? "Tanggal akhir tidak boleh sebelum tanggal mulai."
+      : (toDate(endDate) - toDate(startDate)) / 86400000 > MAX_EXPORT_DAYS
+        ? `Rentang tanggal maksimal ${MAX_EXPORT_DAYS} hari.`
+        : "";
+
+  async function handleDownload() {
+    if (rangeError) return;
+    setDownloading(true);
+    setError("");
+    try {
+      await downloadFinanceReport({ start: startDate, end: endDate, format });
+      onClose();
+    } catch (err) {
+      setError(err.message || "Laporan gagal dibuat. Coba lagi.");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   if (!open) return null;
 
@@ -364,9 +483,13 @@ function UnduhModal({ open, onClose, dateLabel }) {
                 </div>
               </div>
             </div>
-            <p className="mt-1.5 text-[11px] text-neutral-400">
-              Data hingga {formatShortDate(toDate(endDate))}. Termasuk kedua tanggal.
-            </p>
+            {rangeError ? (
+              <p role="alert" className="mt-1.5 text-[11px] text-red-600">{rangeError}</p>
+            ) : (
+              <p className="mt-1.5 text-[11px] text-neutral-400">
+                Data hingga {formatShortDate(toDate(endDate))}. Termasuk kedua tanggal.
+              </p>
+            )}
           </div>
 
           {/* Format */}
@@ -407,21 +530,184 @@ function UnduhModal({ open, onClose, dateLabel }) {
           </div>
 
           {/* Preview */}
-          <div className="rounded-lg bg-neutral-50 px-3 py-2.5 text-[11px] text-neutral-600">
-            <span className="font-semibold">Toko Sumber Rezeki:</span>{" "}
-            Periode {formatShortDate(toDate(startDate))} - {formatShortDate(toDate(endDate))}. Laporan memisahkan laba usaha dan
-            pengeluaran kas agar mudah dibaca.
-          </div>
+          {!rangeError && (
+            <div className="rounded-lg bg-neutral-50 px-3 py-2.5 text-[11px] text-neutral-600">
+              <span className="font-semibold">{storeName}:</span>{" "}
+              Periode {formatShortDate(toDate(startDate))} - {formatShortDate(toDate(endDate))}. Laporan memisahkan laba usaha dan
+              pengeluaran kas agar mudah dibaca.
+            </div>
+          )}
+
+          {error && (
+            <p role="alert" className="flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2.5 text-xs text-red-700">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              {error}
+            </p>
+          )}
         </div>
 
         <div className="flex gap-2 border-t border-neutral-100 px-5 py-4">
           <button type="button" onClick={onClose} className="flex h-10 flex-1 items-center justify-center rounded-lg border border-neutral-200 text-xs font-semibold text-neutral-700 hover:bg-neutral-50">
             Batal
           </button>
-          <button type="button" onClick={onClose} className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg bg-brand-600 text-xs font-semibold text-white hover:bg-brand-700">
+          <button
+            type="button"
+            onClick={handleDownload}
+            disabled={downloading || !!rangeError}
+            className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg bg-brand-600 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+          >
             <Download className="h-3.5 w-3.5" />
-            Simpan
+            {downloading ? "Menyiapkan..." : "Simpan"}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Semua transaksi kas ("Lihat semua") ──────────────────────────────────────
+
+const PAGE_SIZE = 10;
+const SOURCE_LABEL = { penjualan: "Kasir", pembelian: "Pembelian" };
+const FIELD_SM =
+  "h-9 rounded-lg border border-neutral-200 bg-white px-3 text-xs text-neutral-900 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15";
+
+/** Daftar lengkap kas masuk / keluar pada periode terpilih. Catatan manual bisa diklik untuk diubah / dihapus. */
+function SemuaKasModal({ open, ...props }) {
+  // Isi panel baru dipasang saat dibuka: filter mulai dari awal dan tidak ada request saat tertutup
+  return open ? <SemuaKasPanel {...props} /> : null;
+}
+
+function SemuaKasPanel({ onClose, initialType, start, end, rangeLabel, refreshKey, onEdit }) {
+  const [type, setType] = useState(initialType);
+  const [category, setCategory] = useState("");
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+
+  // Kembali ke halaman 1 setiap filter berubah
+  useEffect(() => setPage(1), [type, category, q, start, end]);
+
+  const { entries, meta, loading, error } = useFinanceEntries(
+    { start, end, type, category, q, page, perPage: PAGE_SIZE },
+    refreshKey,
+  );
+
+  const categories = type === "masuk" ? FINANCE_CATEGORIES_IN : FINANCE_CATEGORIES_OUT;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 py-6">
+      <div role="dialog" aria-modal="true" aria-label="Semua transaksi kas" className="flex max-h-full w-full max-w-3xl flex-col rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-neutral-100 px-5 py-4">
+          <div>
+            <h2 className="text-sm font-bold text-neutral-900">Semua transaksi kas</h2>
+            <p className="text-[11px] text-neutral-400">{rangeLabel} · klik catatan manual untuk mengubah atau menghapus</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Tutup" className="flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-100">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 border-b border-neutral-100 px-5 py-3">
+          <div role="tablist" className="flex rounded-lg bg-neutral-100 p-0.5 text-xs font-semibold">
+            {[["keluar", "Keluar"], ["masuk", "Masuk"]].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={type === id}
+                onClick={() => { setType(id); setCategory(""); }}
+                className={cn("rounded-md px-3 py-1.5 transition-colors", type === id ? "bg-white text-neutral-900 shadow-sm" : "text-neutral-500 hover:text-neutral-700")}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Filter jenis" className={FIELD_SM}>
+            <option value="">Semua jenis</option>
+            {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <div className="relative min-w-[180px] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" aria-hidden />
+            <input
+              type="search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Cari keterangan, nota, pelanggan..."
+              aria-label="Cari transaksi kas"
+              maxLength={80}
+              className={cn(FIELD_SM, "w-full pl-9")}
+            />
+          </div>
+        </div>
+
+        <div className={cn("min-h-0 flex-1 overflow-auto transition-opacity", loading && "opacity-60")} aria-busy={loading}>
+          <table className="w-full text-left text-xs">
+            <thead className="sticky top-0">
+              <tr className="bg-neutral-50 border-b border-neutral-100">
+                <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Tanggal</th>
+                <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Jenis</th>
+                <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Keterangan</th>
+                <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Metode</th>
+                <th className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500 text-right">Jumlah</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e) => {
+                const manual = e.source === "manual";
+                return (
+                  <tr
+                    key={e.id}
+                    onClick={manual ? () => onEdit(e) : undefined}
+                    className={cn("border-b border-neutral-100 last:border-0", manual ? "cursor-pointer hover:bg-brand-50/50" : "hover:bg-neutral-50")}
+                  >
+                    <td className="px-4 py-3 whitespace-nowrap text-neutral-500">{formatShortDate(toDate(e.date))}</td>
+                    <td className="px-4 py-3 text-neutral-700">
+                      {e.category}
+                      {!manual && (
+                        <span className="ml-1.5 rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] font-semibold text-neutral-500">{SOURCE_LABEL[e.source]}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-neutral-700">
+                      {e.source === "penjualan" ? (
+                        <Link
+                          to="/riwayat-transaksi"
+                          state={{ search: e.reference }}
+                          onClick={(ev) => ev.stopPropagation()}
+                          className="text-brand-700 hover:underline"
+                          title="Ubah dari Riwayat Transaksi"
+                        >
+                          {e.description}
+                        </Link>
+                      ) : (
+                        e.description || "—"
+                      )}
+                      {e.customer_name && <span className="ml-1.5 text-[11px] text-neutral-400">{e.customer_name}</span>}
+                    </td>
+                    <td className="px-4 py-3 text-neutral-500 capitalize">{e.method || "Tunai"}</td>
+                    <td className={cn("px-4 py-3 tabular-nums text-right", e.type === "masuk" ? "text-green-600" : "text-neutral-700")}>
+                      {formatRupiah(e.amount)}
+                      {manual && <span className="sr-only"> (klik untuk mengubah)</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+              {entries.length === 0 && !loading && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-neutral-500">
+                    {error || "Tidak ada transaksi kas yang cocok pada periode ini."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="space-y-3 border-t border-neutral-100 px-5 py-3">
+          <div className="flex items-center justify-between text-xs font-semibold">
+            <span className="text-neutral-900">Total {type === "masuk" ? "kas masuk" : "kas keluar"}{category ? ` · ${category}` : ""}</span>
+            <span className={cn("tabular-nums", type === "masuk" ? "text-green-600" : "text-red-600")}>{formatRupiah(meta.total_amount)}</span>
+          </div>
+          <Pagination page={meta.page ?? 1} pageCount={meta.page_count ?? 1} total={meta.total} pageSize={PAGE_SIZE} onChange={setPage} itemLabel="transaksi" />
         </div>
       </div>
     </div>
@@ -445,14 +731,32 @@ export default function KeuanganPage() {
   const [unduhOpen, setUnduhOpen] = useState(false);
   const [customerQ, setCustomerQ] = useState("");
   const [incomeRefresh, setIncomeRefresh] = useState(0);
+  const [incomePage, setIncomePage] = useState(1);
+  const [editEntry, setEditEntry] = useState(null); // catatan manual yang sedang diubah
+  const [semuaOpen, setSemuaOpen] = useState(false);
 
   const { report, loading, error, reload } = useFinanceReport(tab, isoDate(currentDate));
 
-  async function handleSave(data) {
-    await createFinanceEntry(data);
+  // Muat ulang laporan + semua daftar kas setelah catatan ditambah / diubah / dihapus
+  function refreshAll() {
     reload();
     setIncomeRefresh((k) => k + 1);
   }
+
+  async function handleSave(data) {
+    if (editEntry) await updateFinanceEntry(editEntry.entry_id, data);
+    else await createFinanceEntry(data);
+    refreshAll();
+  }
+
+  async function handleDelete(reason) {
+    await deleteFinanceEntry(editEntry.entry_id, reason);
+    refreshAll();
+  }
+
+  const openEdit = (entry) => {
+    if (entry.source === "manual") setEditEntry(entry);
+  };
 
   // ── date ranges ─────────────────────────────────────────────────────────
 
@@ -483,11 +787,14 @@ export default function KeuanganPage() {
 
   // ── pemasukan + cari pelanggan ───────────────────────────────────────────
 
-  const { entries: incomeEntries, loading: incomeLoading, error: incomeError } = useFinanceEntries(
-    { start: startDate, end: endDate, type: "masuk", search: customerQ },
+  // Halaman kembali ke 1 saat pencarian / periode berubah
+  useEffect(() => setIncomePage(1), [customerQ, startDate, endDate]);
+
+  const { entries: incomeEntries, meta: incomeMeta, loading: incomeLoading, error: incomeError } = useFinanceEntries(
+    { start: startDate, end: endDate, type: "masuk", search: customerQ, page: incomePage, perPage: PAGE_SIZE },
     incomeRefresh,
   );
-  const totalIncome = incomeEntries.reduce((sum, e) => sum + e.amount, 0);
+  const totalIncome = incomeMeta.total_amount ?? 0; // total seluruh halaman, bukan hanya yang tampil
 
   // ── date navigation ──────────────────────────────────────────────────────
 
@@ -655,10 +962,10 @@ export default function KeuanganPage() {
           <p className="mt-1 text-xl font-bold tabular-nums text-neutral-900">{formatRupiah(stats.pengeluaran)}</p>
           <p className="mt-1 text-[11px] text-neutral-400">Pembelian, operasional & prive</p>
         </Card>
-        <Card className="p-4 bg-brand-700 text-white border-brand-700">
-          <p className="text-[11px] text-brand-300">Laba usaha</p>
-          <p className="mt-1 text-xl font-bold tabular-nums">{formatRupiah(stats.labaUsaha)}</p>
-          <p className="mt-1 text-[11px] text-brand-300">Setelah biaya operasional</p>
+        <Card className="p-4">
+          <p className="text-[11px] text-neutral-500">Laba usaha</p>
+          <p className="mt-1 text-xl font-bold tabular-nums text-neutral-900">{formatRupiah(stats.labaUsaha)}</p>
+          <p className="mt-1 text-[11px] text-neutral-400">Setelah biaya operasional</p>
         </Card>
         <Card className="p-4">
           <p className="text-[11px] text-neutral-500">Arus kas bersih</p>
@@ -668,6 +975,9 @@ export default function KeuanganPage() {
           <p className="mt-1 text-[11px] text-neutral-400">Perubahan saldo kas vs pengeluaran</p>
         </Card>
       </div>
+
+      {/* Grafik */}
+      <FinanceCharts charts={report?.charts} tab={tab} loading={loading} />
 
       {/* Two column: Laba Rugi + Arus Kas */}
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -827,7 +1137,7 @@ export default function KeuanganPage() {
       <Card className="mt-4 p-0">
         <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-100">
           <h2 className="text-sm font-bold text-neutral-900">Biaya operasional</h2>
-          <button type="button" className="text-xs font-semibold text-brand-600 hover:text-brand-700">
+          <button type="button" onClick={() => setSemuaOpen(true)} className="text-xs font-semibold text-brand-600 hover:text-brand-700">
             Lihat semua →
           </button>
         </div>
@@ -843,7 +1153,12 @@ export default function KeuanganPage() {
             </thead>
             <tbody>
               {opCosts.slice(0, 6).map((e) => (
-                <tr key={e.id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50">
+                <tr
+                  key={e.id}
+                  onClick={() => openEdit(e)}
+                  title="Klik untuk mengubah atau menghapus"
+                  className="cursor-pointer border-b border-neutral-100 last:border-0 hover:bg-neutral-50"
+                >
                   <td className="px-4 py-3 text-neutral-500">
                     {toDate(e.date).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}
                   </td>
@@ -896,7 +1211,12 @@ export default function KeuanganPage() {
             </thead>
             <tbody>
               {incomeEntries.map((e) => (
-                <tr key={e.id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50">
+                <tr
+                  key={e.id}
+                  onClick={() => openEdit(e)}
+                  title={e.source === "manual" ? "Klik untuk mengubah atau menghapus" : undefined}
+                  className={cn("border-b border-neutral-100 last:border-0 hover:bg-neutral-50", e.source === "manual" && "cursor-pointer")}
+                >
                   <td className="px-4 py-3 text-neutral-500">
                     {toDate(e.date).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}
                   </td>
@@ -925,11 +1245,36 @@ export default function KeuanganPage() {
             </tbody>
           </table>
         </div>
+        <Pagination
+          className="border-t border-neutral-100 px-5 py-3"
+          page={incomeMeta.page ?? 1}
+          pageCount={incomeMeta.page_count ?? 1}
+          total={incomeMeta.total}
+          pageSize={PAGE_SIZE}
+          onChange={setIncomePage}
+          itemLabel="pemasukan"
+        />
       </Card>
 
-      {/* Modals */}
-      <CatatModal open={catatOpen} onClose={() => setCatatOpen(false)} onSave={handleSave} />
-      <UnduhModal open={unduhOpen} onClose={() => setUnduhOpen(false)} dateLabel={dateLabel} />
+      {/* Modals (CatatModal terakhir supaya tampil di atas panel "Lihat semua") */}
+      <SemuaKasModal
+        open={semuaOpen}
+        onClose={() => setSemuaOpen(false)}
+        initialType="keluar"
+        start={startDate}
+        end={endDate}
+        rangeLabel={rangeLabel}
+        refreshKey={incomeRefresh}
+        onEdit={openEdit}
+      />
+      <UnduhModal open={unduhOpen} onClose={() => setUnduhOpen(false)} defaultStart={startDate} defaultEnd={endDate} />
+      <CatatModal
+        open={catatOpen || !!editEntry}
+        entry={editEntry}
+        onClose={() => { setCatatOpen(false); setEditEntry(null); }}
+        onSave={handleSave}
+        onDelete={handleDelete}
+      />
     </DashboardLayout>
   );
 }

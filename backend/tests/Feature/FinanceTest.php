@@ -41,6 +41,11 @@ class FinanceTest extends TestCase
             $sql = file_get_contents(database_path('sql/002_keuangan.sql'));
             DB::unprepared(preg_replace('/^\s*(BEGIN|COMMIT);\s*$/m', '', $sql));
         }
+        // Sama untuk kolom hapus lunak dari 004_keuangan_hapus.sql
+        if (! Schema::hasColumn('cash_entries', 'deleted_at')) {
+            $sql = file_get_contents(database_path('sql/004_keuangan_hapus.sql'));
+            DB::unprepared(preg_replace('/^\s*(BEGIN|COMMIT);\s*$/m', '', $sql));
+        }
 
         $this->admin = User::where('role', 'admin')->where('is_active', true)->firstOrFail();
         $this->kasir = User::where('role', 'kasir')->where('is_active', true)->firstOrFail();
@@ -221,5 +226,138 @@ class FinanceTest extends TestCase
             ->assertJsonPath('data.created_by', $this->admin->name);
 
         $this->assertDatabaseHas('activity_logs', ['user_id' => $this->admin->id, 'module' => 'keuangan', 'action' => 'tambah']);
+    }
+
+    private function entryId(string $category): int
+    {
+        $rows = $this->actingAs($this->admin)->getJson('/api/finance/entries?start=2031-03-03&end=2031-03-09')->json('data');
+
+        return collect($rows)->firstWhere('category', $category)['entry_id'];
+    }
+
+    public function test_manual_entry_can_be_edited_and_soft_deleted(): void
+    {
+        $this->seedWeek();
+        $id = $this->entryId('Gaji');
+
+        // Kasir tidak boleh mengubah / menghapus
+        $this->actingAs($this->kasir)->putJson("/api/finance/entries/{$id}", [])->assertForbidden();
+        $this->actingAs($this->kasir)->deleteJson("/api/finance/entries/{$id}", ['reason' => 'Salah input'])->assertForbidden();
+
+        // Ubah: Gaji 25.000 -> 30.000, laba usaha 3.000 -> -2.000
+        $this->actingAs($this->admin)->putJson("/api/finance/entries/{$id}", [
+            'type' => 'keluar', 'category' => 'Gaji', 'amount' => 30000, 'date' => '2031-03-06', 'method' => 'transfer', 'description' => 'Gaji harian',
+        ])->assertOk()->assertJsonPath('data.amount', 30000)->assertJsonPath('data.entry_id', $id)->assertJsonPath('data.method', 'transfer');
+        $this->assertSame(-2000, $this->report('mingguan', '2031-03-05')['summary']['laba_usaha']);
+
+        // Validasi tetap berlaku saat mengubah
+        $this->actingAs($this->admin)->putJson("/api/finance/entries/{$id}", [
+            'type' => 'keluar', 'category' => 'Penjualan', 'amount' => 0, 'date' => '2031-03-06', 'method' => 'tunai',
+        ])->assertUnprocessable()->assertJsonValidationErrors(['category', 'amount']);
+
+        // Hapus wajib dengan alasan
+        $this->actingAs($this->admin)->deleteJson("/api/finance/entries/{$id}", ['reason' => 'ab'])
+            ->assertUnprocessable()->assertJsonValidationErrors('reason');
+        $saldoSebelum = $this->report('mingguan', '2031-03-12')['summary']['saldo_awal'];
+        $this->actingAs($this->admin)->deleteJson("/api/finance/entries/{$id}", ['reason' => 'Salah input gaji'])->assertOk();
+
+        // Tidak lagi dihitung: laporan, daftar kas, dan saldo awal periode berikutnya
+        $s = $this->report('mingguan', '2031-03-05')['summary'];
+        $this->assertSame(0, $s['biaya_operasional']);
+        $this->assertSame(28000, $s['laba_usaha']);
+        $this->assertNull(collect($this->actingAs($this->admin)->getJson('/api/finance/entries?start=2031-03-03&end=2031-03-09')->json('data'))->firstWhere('entry_id', $id));
+        $this->assertSame($saldoSebelum + 30000, $this->report('mingguan', '2031-03-12')['summary']['saldo_awal']);
+
+        // Jejaknya tetap ada
+        $this->assertDatabaseHas('cash_entries', ['id' => $id, 'deleted_by' => $this->admin->id, 'delete_reason' => 'Salah input gaji']);
+        $this->assertDatabaseHas('activity_logs', ['module' => 'keuangan', 'action' => 'ubah', 'subject_id' => $id]);
+        $this->assertDatabaseHas('activity_logs', ['module' => 'keuangan', 'action' => 'hapus', 'subject_id' => $id]);
+
+        // Catatan yang sudah dihapus tidak bisa diubah / dihapus lagi
+        $this->actingAs($this->admin)->deleteJson("/api/finance/entries/{$id}", ['reason' => 'Hapus lagi'])->assertNotFound();
+        $this->actingAs($this->admin)->putJson("/api/finance/entries/{$id}", [
+            'type' => 'keluar', 'category' => 'Gaji', 'amount' => 1000, 'date' => '2031-03-06', 'method' => 'tunai',
+        ])->assertNotFound();
+    }
+
+    public function test_entries_filter_and_pagination(): void
+    {
+        $this->seedWeek();
+        $url = '/api/finance/entries?start=2031-03-03&end=2031-03-09&type=keluar';
+
+        $all = $this->actingAs($this->admin)->getJson($url)->assertOk();
+        $this->assertCount(3, $all->json('data'));                 // pembelian 40.000, gaji 25.000, prive 10.000
+        $this->assertSame(['total' => 3, 'total_amount' => 75000], $all->json('meta'));
+
+        $this->assertCount(1, $this->actingAs($this->admin)->getJson($url.'&category=Gaji')->json('data'));
+        $this->assertSame('pembelian', $this->actingAs($this->admin)->getJson($url.'&q=supplier uji')->json('data.0.source'));
+
+        $page1 = $this->actingAs($this->admin)->getJson($url.'&page=1&per_page=2')->assertOk();
+        $this->assertCount(2, $page1->json('data'));
+        $this->assertSame(['total' => 3, 'total_amount' => 75000, 'page' => 1, 'per_page' => 2, 'page_count' => 2], $page1->json('meta'));
+        $this->assertCount(1, $this->actingAs($this->admin)->getJson($url.'&page=2&per_page=2')->json('data'));
+        // Halaman di luar jangkauan diarahkan ke halaman terakhir
+        $this->assertSame(2, $this->actingAs($this->admin)->getJson($url.'&page=9&per_page=2')->json('meta.page'));
+    }
+
+    public function test_report_includes_chart_data(): void
+    {
+        $this->seedWeek();
+
+        // Harian: 7 hari terakhir s.d. tanggal terpilih, saldo berjalan berakhir di saldo akhir hari itu
+        $harian = $this->report('harian', '2031-03-07');
+        $cashflow = $harian['charts']['cashflow'];
+        $this->assertCount(7, $cashflow);
+        $this->assertSame('2031-03-01', $cashflow[0]['start']);
+        $this->assertSame('2031-03-07', $cashflow[6]['start']);
+        $this->assertSame($harian['summary']['saldo_akhir'], $cashflow[6]['saldo_akhir']);
+        $this->assertSame(55000, $cashflow[2]['kas_masuk'] + $cashflow[3]['kas_masuk']); // 3 & 4 Mar
+
+        // Mingguan: sama dengan rincian
+        $mingguan = $this->report('mingguan', '2031-03-05');
+        $this->assertCount(7, $mingguan['charts']['cashflow']);
+        $this->assertSame($mingguan['summary']['saldo_akhir'], end($mingguan['charts']['cashflow'])['saldo_akhir']);
+
+        $this->assertSame([
+            ['category' => 'Pembelian barang', 'amount' => 40000],
+            ['category' => 'Gaji', 'amount' => 25000],
+            ['category' => 'Prive pemilik', 'amount' => 10000],
+        ], $mingguan['charts']['expense_by_category']);
+
+        // Nota batal (9 pcs) tidak ikut dihitung
+        $this->assertSame([['product_id' => $this->productId, 'name' => 'Pakan Uji', 'qty' => 7, 'omzet' => 70000]], $mingguan['charts']['top_products']);
+    }
+
+    public function test_export_pdf_and_excel(): void
+    {
+        $this->seedWeek();
+        $url = '/api/finance/export?start=2031-03-03&end=2031-03-09';
+
+        $this->actingAs($this->kasir)->get($url.'&format=pdf')->assertForbidden();
+
+        $pdf = $this->actingAs($this->admin)->get($url.'&format=pdf')->assertOk();
+        $this->assertSame('application/pdf', $pdf->headers->get('Content-Type'));
+        $this->assertStringContainsString('laporan-keuangan_2031-03-03_2031-03-09.pdf', $pdf->headers->get('Content-Disposition'));
+        $this->assertStringStartsWith('%PDF', $pdf->getContent());
+
+        $xlsx = $this->actingAs($this->admin)->get($url.'&format=xlsx')->assertOk();
+        $this->assertStringStartsWith('PK', $xlsx->getContent());
+        $path = tempnam(sys_get_temp_dir(), 'xlsx');
+        file_put_contents($path, $xlsx->getContent());
+        $book = \PhpOffice\PhpSpreadsheet\IOFactory::load($path);
+        unlink($path);
+
+        $this->assertSame(['Ringkasan', 'Penjualan', 'Arus Kas', 'Transaksi kas'], $book->getSheetNames());
+        $this->assertSame(3000, $book->getSheetByName('Ringkasan')->getCell('B10')->getValue());       // laba usaha
+        $this->assertSame(3, $book->getSheetByName('Penjualan')->getHighestDataRow() - 1);              // 3 nota termasuk batal
+        $this->assertSame(7, $book->getSheetByName('Arus Kas')->getHighestDataRow() - 1);               // 7 hari
+        $this->assertSame(6, $book->getSheetByName('Transaksi kas')->getHighestDataRow() - 1);          // 2 penjualan + 1 pembelian + 3 manual
+
+        $this->assertDatabaseHas('activity_logs', ['module' => 'keuangan', 'action' => 'unduh']);
+
+        // Validasi rentang & format
+        $this->actingAs($this->admin)->getJson('/api/finance/export?start=2031-03-09&end=2031-03-03&format=pdf')->assertUnprocessable();
+        $this->actingAs($this->admin)->getJson('/api/finance/export?start=2030-01-01&end=2031-03-03&format=pdf')->assertUnprocessable();
+        $this->actingAs($this->admin)->getJson($url.'&format=csv')->assertUnprocessable();
     }
 }
