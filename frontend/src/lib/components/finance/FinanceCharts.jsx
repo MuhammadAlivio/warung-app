@@ -192,7 +192,7 @@ export default function FinanceCharts({ charts, tab, loading }) {
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <Card className="p-5">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-bold text-neutral-900">Pengeluaran per jenis</h2>
+            <h2 className="text-sm font-bold text-neutral-900">Pengeluaran per kategori</h2>
             <span className="text-[11px] text-neutral-400">Total {formatRupiah(totalExpense)}</span>
           </div>
           <HorizontalBars

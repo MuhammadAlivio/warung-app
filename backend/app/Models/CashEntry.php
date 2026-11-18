@@ -7,9 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 
 /**
  * Catatan kas manual di halaman Keuangan (tabel cash_entries, lihat database/sql/002_keuangan.sql).
- * Hapus lunak: deleted_at / deleted_by / delete_reason (004_keuangan_hapus.sql); baris terhapus tidak dihitung di laporan.
+ * category = jenis (efek ke laporan), subcategory = kategori dari tabel cash_categories.
+ * Hapus lunak: deleted_at / deleted_by / delete_reason (002_keuangan.sql); baris terhapus tidak dihitung di laporan.
  */
-#[Fillable(['type', 'category', 'amount', 'entry_date', 'method', 'description', 'user_id'])]
+#[Fillable(['type', 'category', 'subcategory', 'amount', 'entry_date', 'method', 'description', 'user_id'])]
 class CashEntry extends Model
 {
     protected function casts(): array

@@ -31,9 +31,7 @@ class FinanceExporter
             'r' => $report,
             'store' => $this->store(),
             'periodLabel' => $this->periodLabel($report),
-            'operational' => $report['entries']
-                ->filter(fn ($e) => $e['type'] === 'keluar' && ! in_array($e['category'], ['Pembelian barang', 'Prive pemilik'], true))
-                ->sortBy('date')->values(),
+            'operational' => $report['entries']->where('effect', 'biaya')->sortBy('date')->values(),
             'fmtDate' => fn (string $d) => $this->date($d),
             'rp' => fn (int $n) => $this->rupiah($n),
             'printedAt' => CarbonImmutable::now(FinanceService::TIMEZONE)->locale('id')->translatedFormat('j F Y H.i'),
@@ -94,9 +92,11 @@ class FinanceExporter
             ['Arus kas'],
             ['Saldo awal', $s['saldo_awal']],
             ['Penjualan dibayar', $s['masuk_penjualan']],
+            ['Modal pemilik', $s['masuk_modal']],
             ['Pemasukan lain', $s['masuk_lainnya']],
             ['Bayar pemasok', -$s['bayar_pemasok']],
             ['Operasional', -$s['biaya_operasional']],
+            ['Pengeluaran lain (bukan biaya)', -$s['keluar_lainnya']],
             ['Prive pemilik', -$s['prive']],
             ['Arus kas bersih', $s['arus_kas_bersih']],
             ['Saldo akhir', $s['saldo_akhir']],
@@ -108,14 +108,14 @@ class FinanceExporter
         $sheet->fromArray($rows, null, 'A1', true);
 
         $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
-        foreach ([5, 12, 22] as $row) {
+        foreach ([5, 12, 24] as $row) {
             $sheet->getStyle("A{$row}")->getFont()->setBold(true);
         }
-        foreach ([10, 20] as $row) {
+        foreach ([10, 22] as $row) {
             $sheet->getStyle("A{$row}:B{$row}")->getFont()->setBold(true);
         }
-        $sheet->getStyle('B6:B21')->getNumberFormat()->setFormatCode(self::RUPIAH);
-        $sheet->getStyle('B24')->getNumberFormat()->setFormatCode(self::RUPIAH);
+        $sheet->getStyle('B6:B23')->getNumberFormat()->setFormatCode(self::RUPIAH);
+        $sheet->getStyle('B26')->getNumberFormat()->setFormatCode(self::RUPIAH);
         $sheet->getColumnDimension('A')->setWidth(28);
         $sheet->getColumnDimension('B')->setWidth(20);
     }
@@ -147,12 +147,12 @@ class FinanceExporter
     {
         $sheet->setTitle('Transaksi kas');
         $rows = $r['entries']->sortBy('date')->map(fn ($e) => [
-            $this->date($e['date']), $e['type'] === 'masuk' ? 'Masuk' : 'Keluar', $e['category'], $e['description'],
-            $e['customer_name'], self::METHOD_LABELS[$e['method']] ?? $e['method'], $e['created_by'],
+            $this->date($e['date']), $e['type'] === 'masuk' ? 'Masuk' : 'Keluar', $e['category'], $e['subcategory'] ?? '',
+            $e['description'], $e['customer_name'], self::METHOD_LABELS[$e['method']] ?? $e['method'], $e['created_by'],
             $e['type'] === 'masuk' ? $e['amount'] : -$e['amount'],
         ])->values()->all();
 
-        $this->table($sheet, ['Tanggal', 'Arah', 'Jenis', 'Keterangan', 'Pelanggan', 'Metode', 'Dicatat oleh', 'Jumlah'], $rows, [8]);
+        $this->table($sheet, ['Tanggal', 'Arah', 'Jenis', 'Kategori', 'Keterangan', 'Pelanggan', 'Metode', 'Dicatat oleh', 'Jumlah'], $rows, [9]);
     }
 
     /** Header tebal berlatar, data mulai baris 2, kolom uang ($moneyCols, 1-based) diformat Rupiah. */

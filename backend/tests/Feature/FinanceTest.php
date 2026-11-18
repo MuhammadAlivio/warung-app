@@ -36,14 +36,10 @@ class FinanceTest extends TestCase
             $this->markTestSkipped('Butuh Postgres: DB_CONNECTION=pgsql DB_DATABASE=postgres php artisan test');
         }
 
-        // Jika 002_keuangan.sql belum dijalankan, buat tabelnya di dalam transaksi tes (ikut di-rollback)
-        if (! Schema::hasTable('cash_entries')) {
+        // Jika skema Keuangan (002_keuangan.sql) belum lengkap, jalankan di dalam transaksi tes (ikut di-rollback).
+        // File itu aman dijalankan ulang, jadi bagian yang sudah ada dilewati.
+        if (! Schema::hasTable('cash_types') || ! Schema::hasTable('cash_categories') || ! Schema::hasColumn('cash_entries', 'subcategory') || ! Schema::hasColumn('cash_entries', 'deleted_at')) {
             $sql = file_get_contents(database_path('sql/002_keuangan.sql'));
-            DB::unprepared(preg_replace('/^\s*(BEGIN|COMMIT);\s*$/m', '', $sql));
-        }
-        // Sama untuk kolom hapus lunak dari 004_keuangan_hapus.sql
-        if (! Schema::hasColumn('cash_entries', 'deleted_at')) {
-            $sql = file_get_contents(database_path('sql/004_keuangan_hapus.sql'));
             DB::unprepared(preg_replace('/^\s*(BEGIN|COMMIT);\s*$/m', '', $sql));
         }
 
@@ -105,12 +101,16 @@ class FinanceTest extends TestCase
         ]);
 
         foreach ([
-            ['type' => 'keluar', 'category' => 'Gaji', 'amount' => 25000, 'date' => '2031-03-06'],
-            ['type' => 'keluar', 'category' => 'Prive pemilik', 'amount' => 10000, 'date' => '2031-03-06'],
-            ['type' => 'masuk', 'category' => 'Lainnya', 'amount' => 7000, 'date' => '2031-03-07'],
+            ['type' => 'keluar', 'category' => 'Biaya operasional', 'subcategory' => 'Gaji', 'amount' => 25000, 'date' => '2031-03-06'],
+            ['type' => 'masuk', 'category' => 'Pemasukan lain', 'subcategory' => 'Lainnya', 'amount' => 7000, 'date' => '2031-03-07'],
         ] as $entry) {
             $this->actingAs($this->admin)->postJson('/api/finance/entries', [...$entry, 'method' => 'tunai'])->assertCreated();
         }
+        // Catatan lama berjenis "Prive pemilik" (tidak bisa dipilih lagi lewat API) tetap dihitung benar
+        DB::table('cash_entries')->insert([
+            'type' => 'keluar', 'category' => 'Prive pemilik', 'amount' => 10000, 'entry_date' => '2031-03-06',
+            'method' => 'tunai', 'user_id' => $this->admin->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
     }
 
     private function report(string $period, string $date): array
@@ -160,7 +160,8 @@ class FinanceTest extends TestCase
         $this->assertCount(7, $data['breakdown']);
         $this->assertSame(50000, $data['breakdown'][0]['penjualan']);  // 3 Mar
         $this->assertSame(20000, $data['breakdown'][1]['penjualan']);  // 4 Mar (20:00 UTC = 03:00 WIB)
-        $this->assertSame(['Gaji'], array_column($data['operational_costs'], 'category'));
+        $this->assertSame(['Biaya operasional'], array_column($data['operational_costs'], 'category'));
+        $this->assertSame(['Gaji'], array_column($data['operational_costs'], 'subcategory'));
     }
 
     public function test_daily_and_monthly_periods(): void
@@ -217,10 +218,11 @@ class FinanceTest extends TestCase
         ])->assertUnprocessable()->assertJsonValidationErrors(['category', 'amount', 'method']);
 
         $this->actingAs($this->admin)->postJson('/api/finance/entries', [
-            'type' => 'keluar', 'category' => 'Transportasi', 'amount' => 150000, 'date' => '2031-03-03',
-            'method' => 'tunai', 'description' => 'Ongkos kirim',
+            'type' => 'keluar', 'category' => 'Biaya operasional', 'subcategory' => 'transportasi', 'amount' => 150000,
+            'date' => '2031-03-03', 'method' => 'tunai', 'description' => 'Ongkos kirim',
         ])->assertCreated()
             ->assertJsonPath('data.source', 'manual')
+            ->assertJsonPath('data.subcategory', 'Transportasi')   // disimpan sesuai nama di daftar
             ->assertJsonPath('data.amount', 150000)
             ->assertJsonPath('data.date', '2031-03-03')
             ->assertJsonPath('data.created_by', $this->admin->name);
@@ -228,11 +230,11 @@ class FinanceTest extends TestCase
         $this->assertDatabaseHas('activity_logs', ['user_id' => $this->admin->id, 'module' => 'keuangan', 'action' => 'tambah']);
     }
 
-    private function entryId(string $category): int
+    private function entryId(string $subcategory): int
     {
         $rows = $this->actingAs($this->admin)->getJson('/api/finance/entries?start=2031-03-03&end=2031-03-09')->json('data');
 
-        return collect($rows)->firstWhere('category', $category)['entry_id'];
+        return collect($rows)->firstWhere('subcategory', $subcategory)['entry_id'];
     }
 
     public function test_manual_entry_can_be_edited_and_soft_deleted(): void
@@ -246,7 +248,7 @@ class FinanceTest extends TestCase
 
         // Ubah: Gaji 25.000 -> 30.000, laba usaha 3.000 -> -2.000
         $this->actingAs($this->admin)->putJson("/api/finance/entries/{$id}", [
-            'type' => 'keluar', 'category' => 'Gaji', 'amount' => 30000, 'date' => '2031-03-06', 'method' => 'transfer', 'description' => 'Gaji harian',
+            'type' => 'keluar', 'category' => 'Biaya operasional', 'subcategory' => 'Gaji', 'amount' => 30000, 'date' => '2031-03-06', 'method' => 'transfer', 'description' => 'Gaji harian',
         ])->assertOk()->assertJsonPath('data.amount', 30000)->assertJsonPath('data.entry_id', $id)->assertJsonPath('data.method', 'transfer');
         $this->assertSame(-2000, $this->report('mingguan', '2031-03-05')['summary']['laba_usaha']);
 
@@ -276,7 +278,7 @@ class FinanceTest extends TestCase
         // Catatan yang sudah dihapus tidak bisa diubah / dihapus lagi
         $this->actingAs($this->admin)->deleteJson("/api/finance/entries/{$id}", ['reason' => 'Hapus lagi'])->assertNotFound();
         $this->actingAs($this->admin)->putJson("/api/finance/entries/{$id}", [
-            'type' => 'keluar', 'category' => 'Gaji', 'amount' => 1000, 'date' => '2031-03-06', 'method' => 'tunai',
+            'type' => 'keluar', 'category' => 'Biaya operasional', 'subcategory' => 'Gaji', 'amount' => 1000, 'date' => '2031-03-06', 'method' => 'tunai',
         ])->assertNotFound();
     }
 
@@ -359,5 +361,126 @@ class FinanceTest extends TestCase
         $this->actingAs($this->admin)->getJson('/api/finance/export?start=2031-03-09&end=2031-03-03&format=pdf')->assertUnprocessable();
         $this->actingAs($this->admin)->getJson('/api/finance/export?start=2030-01-01&end=2031-03-03&format=pdf')->assertUnprocessable();
         $this->actingAs($this->admin)->getJson($url.'&format=csv')->assertUnprocessable();
+    }
+    public function test_categories_can_be_listed_and_added(): void
+    {
+        $list = $this->actingAs($this->admin)->getJson('/api/finance/categories')->assertOk()->json('data');
+        $this->assertSame(['Biaya operasional', 'Pemasukan lain'], array_keys($list));
+        $this->assertContains('Gaji', $list['Biaya operasional']);
+        $this->assertSame('Lainnya', end($list['Biaya operasional']));   // "Lainnya" selalu terakhir
+
+        $this->actingAs($this->kasir)->postJson('/api/finance/categories', ['parent' => 'Biaya operasional', 'name' => 'Parkir'])->assertForbidden();
+
+        // Tambah kategori baru -> langsung bisa dipakai, posisinya sebelum "Lainnya"
+        $res = $this->actingAs($this->admin)->postJson('/api/finance/categories', ['parent' => 'Biaya operasional', 'name' => '  Parkir   motor '])
+            ->assertCreated()->assertJsonPath('data.name', 'Parkir motor');
+        $this->assertSame(['Parkir motor', 'Lainnya'], array_slice($res->json('categories')['Biaya operasional'], -2));
+        $this->assertDatabaseHas('activity_logs', ['module' => 'keuangan', 'action' => 'tambah', 'description' => 'Menambah kategori Biaya operasional: Parkir motor']);
+
+        // Nama sama (beda huruf besar/kecil) tidak dobel
+        $this->actingAs($this->admin)->postJson('/api/finance/categories', ['parent' => 'Biaya operasional', 'name' => 'PARKIR MOTOR'])
+            ->assertOk()->assertJsonPath('data.name', 'Parkir motor');
+        $this->assertSame(1, DB::table('cash_categories')->whereRaw("lower(name) = 'parkir motor'")->count());
+
+        // Validasi
+        $this->actingAs($this->admin)->postJson('/api/finance/categories', ['parent' => 'Pembelian barang', 'name' => 'X1'])
+            ->assertUnprocessable()->assertJsonValidationErrors('parent');
+        $this->actingAs($this->admin)->postJson('/api/finance/categories', ['parent' => 'Pemasukan lain', 'name' => ' '])
+            ->assertUnprocessable()->assertJsonValidationErrors('name');
+
+        $this->actingAs($this->admin)->postJson('/api/finance/entries', [
+            'type' => 'keluar', 'category' => 'Biaya operasional', 'subcategory' => 'Parkir motor', 'amount' => 2000, 'date' => '2031-03-03', 'method' => 'tunai',
+        ])->assertCreated()->assertJsonPath('data.subcategory', 'Parkir motor');
+    }
+
+    public function test_jenis_and_kategori_rules(): void
+    {
+        $base = ['amount' => 1000, 'date' => '2031-03-03', 'method' => 'tunai'];
+
+        // Penjualan / pelunasan / prive pemilik tidak bisa dicatat manual lagi
+        foreach ([['masuk', 'Penjualan'], ['masuk', 'Pelunasan piutang'], ['keluar', 'Prive pemilik']] as [$type, $category]) {
+            $this->actingAs($this->admin)->postJson('/api/finance/entries', [...$base, 'type' => $type, 'category' => $category])
+                ->assertUnprocessable()->assertJsonValidationErrors('category');
+        }
+
+        // Biaya operasional wajib kategori yang terdaftar di jenisnya
+        $this->actingAs($this->admin)->postJson('/api/finance/entries', [...$base, 'type' => 'keluar', 'category' => 'Biaya operasional'])
+            ->assertUnprocessable()->assertJsonValidationErrors('subcategory');
+        $this->actingAs($this->admin)->postJson('/api/finance/entries', [...$base, 'type' => 'keluar', 'category' => 'Biaya operasional', 'subcategory' => 'Jual barang bekas'])
+            ->assertUnprocessable()->assertJsonValidationErrors('subcategory');
+
+        // Jenis tanpa kategori: kategori yang dikirim diabaikan
+        $this->actingAs($this->admin)->postJson('/api/finance/entries', [...$base, 'type' => 'keluar', 'category' => 'Pembelian barang', 'subcategory' => 'Gaji'])
+            ->assertCreated()->assertJsonPath('data.subcategory', null);
+        $this->actingAs($this->admin)->postJson('/api/finance/entries', [...$base, 'type' => 'masuk', 'category' => 'Prive masuk'])
+            ->assertCreated()->assertJsonPath('data.category', 'Prive masuk');
+
+        // Catatan lama "Prive pemilik" tetap bisa diubah tanpa mengganti jenisnya
+        $this->seedWeek();
+        $legacy = collect($this->actingAs($this->admin)->getJson('/api/finance/entries?start=2031-03-03&end=2031-03-09')->json('data'))
+            ->firstWhere('category', 'Prive pemilik')['entry_id'];
+        $this->actingAs($this->admin)->putJson("/api/finance/entries/{$legacy}", [...$base, 'type' => 'keluar', 'category' => 'Prive pemilik', 'amount' => 12000])
+            ->assertOk()->assertJsonPath('data.amount', 12000);
+    }
+    public function test_types_can_be_listed_and_added_with_effect(): void
+    {
+        $types = $this->actingAs($this->admin)->getJson('/api/finance/types')->assertOk()->json('data');
+        $this->assertSame(['Biaya operasional', 'Pembelian barang'], array_slice(array_column($types['keluar'], 'name'), 0, 2));
+        $this->assertSame(['Pemasukan lain', 'Prive masuk'], array_slice(array_column($types['masuk'], 'name'), 0, 2));
+        $this->assertTrue($types['keluar'][0]['has_subcategory']);
+
+        $this->actingAs($this->kasir)->postJson('/api/finance/types', ['direction' => 'keluar', 'name' => 'Sumbangan', 'effect' => 'biaya'])->assertForbidden();
+
+        // Validasi: efek harus sesuai arah, nama sistem ditolak
+        $this->actingAs($this->admin)->postJson('/api/finance/types', ['direction' => 'keluar', 'name' => 'Sumbangan', 'effect' => 'modal'])
+            ->assertUnprocessable()->assertJsonValidationErrors('effect');
+        $this->actingAs($this->admin)->postJson('/api/finance/types', ['direction' => 'masuk', 'name' => ' penjualan ', 'effect' => 'pemasukan'])
+            ->assertUnprocessable()->assertJsonValidationErrors('name');
+        $this->actingAs($this->admin)->postJson('/api/finance/types', ['direction' => 'keluar', 'name' => 'Prive Pemilik', 'effect' => 'bukan_biaya'])
+            ->assertUnprocessable()->assertJsonValidationErrors('name');
+
+        $this->actingAs($this->admin)->postJson('/api/finance/types', ['direction' => 'keluar', 'name' => ' Sumbangan  warga ', 'effect' => 'biaya'])
+            ->assertCreated()->assertJsonPath('data.name', 'Sumbangan warga')->assertJsonPath('data.effect', 'biaya')
+            ->assertJsonPath('data.has_subcategory', false);
+        $this->assertDatabaseHas('activity_logs', ['module' => 'keuangan', 'action' => 'tambah', 'description' => 'Menambah jenis kas keluar: Sumbangan warga, dihitung sebagai biaya (mengurangi laba)']);
+
+        // Nama sama (beda huruf) tidak dobel, efek lama tidak berubah
+        $this->actingAs($this->admin)->postJson('/api/finance/types', ['direction' => 'keluar', 'name' => 'SUMBANGAN WARGA', 'effect' => 'bukan_biaya'])
+            ->assertOk()->assertJsonPath('data.effect', 'biaya');
+        $this->assertSame(1, DB::table('cash_types')->whereRaw("lower(name) = 'sumbangan warga'")->count());
+
+        // Jenis yang sama boleh ada di arah lain
+        $this->actingAs($this->admin)->postJson('/api/finance/types', ['direction' => 'masuk', 'name' => 'Sumbangan warga', 'effect' => 'pemasukan'])->assertCreated();
+    }
+
+    public function test_new_types_follow_their_effect_in_report(): void
+    {
+        $this->seedWeek();
+        $before = $this->report('mingguan', '2031-03-05')['summary'];
+
+        foreach ([['keluar', 'Uji biaya baru', 'biaya'], ['keluar', 'Uji cicilan pinjaman', 'bukan_biaya'], ['masuk', 'Uji modal tambahan', 'modal'], ['masuk', 'Uji bunga bank', 'pemasukan']] as [$dir, $name, $effect]) {
+            $this->actingAs($this->admin)->postJson('/api/finance/types', ['direction' => $dir, 'name' => $name, 'effect' => $effect])->assertCreated();
+        }
+        foreach ([['keluar', 'uji biaya baru', 4000], ['keluar', 'Uji cicilan pinjaman', 6000], ['masuk', 'Uji modal tambahan', 100000], ['masuk', 'Uji bunga bank', 500]] as [$type, $category, $amount]) {
+            $this->actingAs($this->admin)->postJson('/api/finance/entries', [
+                'type' => $type, 'category' => $category, 'amount' => $amount, 'date' => '2031-03-05', 'method' => 'tunai',
+            ])->assertCreated();
+        }
+        // Nama jenis disimpan sesuai daftar
+        $this->assertDatabaseHas('cash_entries', ['category' => 'Uji biaya baru', 'amount' => 4000]);
+
+        $s = $this->report('mingguan', '2031-03-05')['summary'];
+        $this->assertSame($before['biaya_operasional'] + 4000, $s['biaya_operasional']);   // biaya -> laba berkurang
+        $this->assertSame($before['laba_usaha'] - 4000, $s['laba_usaha']);                  // cicilan (bukan biaya) tidak mengurangi laba
+        $this->assertSame(6000, $s['keluar_lainnya']);
+        $this->assertSame($before['masuk_modal'] + 100000, $s['masuk_modal']);
+        $this->assertSame($before['masuk_lainnya'] + 500, $s['masuk_lainnya']);
+        $this->assertSame($before['kas_keluar'] + 10000, $s['kas_keluar']);
+        // Rincian arus kas tetap pas dengan total
+        $this->assertSame(
+            $s['arus_kas_bersih'],
+            $s['masuk_penjualan'] + $s['masuk_modal'] + $s['masuk_lainnya'] - $s['bayar_pemasok'] - $s['biaya_operasional'] - $s['keluar_lainnya'] - $s['prive'],
+        );
+        $this->assertContains('Uji biaya baru', array_column($this->report('mingguan', '2031-03-05')['operational_costs'], 'category'));
     }
 }

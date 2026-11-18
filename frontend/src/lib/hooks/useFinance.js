@@ -60,11 +60,61 @@ export function useFinanceEntries({ start, end, type, search, category, q, page,
   return { entries, meta, loading, error };
 }
 
+/**
+ * Kategori per jenis dari backend, mis. { "Biaya operasional": ["Gaji", ...], "Pemasukan lain": [...] }.
+ * `setCategories` dipakai untuk memasang daftar terbaru setelah admin menambah kategori.
+ */
+export function useFinanceCategories() {
+  const [categories, setCategories] = useState({});
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    api("/api/finance/categories")
+      .then((res) => !cancelled && setCategories(res.data))
+      .catch((e) => !cancelled && setError(e.message || "Gagal memuat kategori."));
+    return () => { cancelled = true; };
+  }, []);
+
+  return { categories, setCategories, error };
+}
+
+/**
+ * Jenis kas per arah dari backend: { keluar: [{ name, effect, has_subcategory }], masuk: [...] }.
+ * effect: "biaya" | "bukan_biaya" (keluar), "pemasukan" | "modal" (masuk).
+ */
+export function useFinanceTypes() {
+  const [types, setTypes] = useState({ keluar: [], masuk: [] });
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    api("/api/finance/types")
+      .then((res) => !cancelled && setTypes(res.data))
+      .catch((e) => !cancelled && setError(e.message || "Gagal memuat jenis."));
+    return () => { cancelled = true; };
+  }, []);
+
+  return { types, setTypes, error };
+}
+
+/** Tambah jenis baru beserta efeknya. Hasil: { type (jenis tersimpan), types (daftar terbaru) }. */
+export async function addFinanceType(direction, name, effect) {
+  const res = await api("/api/finance/types", { method: "POST", body: { direction, name, effect } });
+  return { type: res.data, types: res.types };
+}
+
+/** Tambah kategori baru. Hasil: { name (nama tersimpan), categories (daftar terbaru) }. */
+export async function addFinanceCategory(parent, name) {
+  const res = await api("/api/finance/categories", { method: "POST", body: { parent, name } });
+  return { name: res.data.name, categories: res.categories };
+}
+
 /** Ubah catatan kas manual (entry_id dari baris buku kas). */
-export async function updateFinanceEntry(entryId, { type, category, amount, date, method, description }) {
+export async function updateFinanceEntry(entryId, { type, category, subcategory, amount, date, method, description }) {
   const res = await api(`/api/finance/entries/${entryId}`, {
     method: "PUT",
-    body: { type, category, amount, date, method, description: description || null },
+    body: { type, category, subcategory: subcategory || null, amount, date, method, description: description || null },
   });
   return res.data;
 }
@@ -102,10 +152,10 @@ export async function downloadFinanceReport({ start, end, format }) {
 }
 
 /** Catat kas masuk / keluar manual. Error validasi dilempar ke pemanggil (ApiError). */
-export async function createFinanceEntry({ type, category, amount, date, method, description }) {
+export async function createFinanceEntry({ type, category, subcategory, amount, date, method, description }) {
   const res = await api("/api/finance/entries", {
     method: "POST",
-    body: { type, category, amount, date, method, description: description || null },
+    body: { type, category, subcategory: subcategory || null, amount, date, method, description: description || null },
   });
   return res.data;
 }

@@ -1,14 +1,6 @@
-export const FINANCE_CATEGORIES_IN = ["Penjualan", "Pelunasan piutang", "Prive masuk", "Lainnya"];
-export const FINANCE_CATEGORIES_OUT = [
-  "Biaya operasional",
-  "Pembelian barang",
-  "Gaji",
-  "Listrik & air",
-  "Transportasi",
-  "Sewa toko",
-  "Biaya lainnya",
-  "Prive pemilik",
-];
+// Daftar jenis & kategori kas sekarang dari database (/api/finance/types & /api/finance/categories).
+// Jenis otomatis dari Kasir, untuk filter di panel "Lihat semua"
+export const FINANCE_AUTO_CATEGORIES_IN = ["Penjualan", "Pelunasan piutang"];
 
 // Richer mock data for the week of 2-17 Oct 2026
 export const INITIAL_FINANCE_ENTRIES = [

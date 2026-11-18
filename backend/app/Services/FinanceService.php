@@ -28,20 +28,29 @@ class FinanceService
 
     public const PERIODS = ['harian', 'mingguan', 'bulanan'];
 
-    /** Sama dengan FINANCE_CATEGORIES_IN / _OUT di frontend (lib/data/financeMockData.js). */
-    public const CATEGORIES_IN = ['Penjualan', 'Pelunasan piutang', 'Prive masuk', 'Lainnya'];
+    /**
+     * Efek jenis kas ke laporan (kolom cash_types.effect):
+     *   keluar: biaya (kas & laba usaha berkurang), bukan_biaya (hanya kas berkurang)
+     *   masuk : pemasukan (kas bertambah, bukan penjualan), modal (uang dari pemilik)
+     */
+    public const EFFECTS = ['keluar' => ['biaya', 'bukan_biaya'], 'masuk' => ['pemasukan', 'modal']];
 
-    public const CATEGORIES_OUT = [
-        'Biaya operasional', 'Pembelian barang', 'Gaji', 'Listrik & air',
-        'Transportasi', 'Sewa toko', 'Biaya lainnya', 'Prive pemilik',
-    ];
+    /** Jenis yang wajib punya kategori (tabel cash_categories, bisa ditambah admin). */
+    public const WITH_SUBCATEGORY = ['Biaya operasional', 'Pemasukan lain'];
+
+    /**
+     * Nama jenis milik sistem, tidak bisa dipilih atau dibuat lewat modal Catat:
+     * penjualan & pelunasan otomatis dari Kasir (mencegah terhitung dua kali), prive pemilik sudah dihapus
+     * (catatan lamanya tetap dihitung dengan benar).
+     */
+    public const RESERVED_TYPES = ['Penjualan', 'Pelunasan piutang', 'Prive pemilik'];
 
     public const METHODS = ['tunai', 'transfer', 'qris'];
 
-    /** Pengeluaran yang bukan biaya operasional (masuk HPP/persediaan atau pengambilan pemilik). */
-    private const NON_OPERATIONAL = ['Pembelian barang', 'Prive pemilik'];
-
     private const SALE_CATEGORIES = ['Penjualan', 'Pelunasan piutang'];
+
+    /** Efek per jenis dari cash_types, dimuat sekali per request: ["keluar|biaya operasional" => "biaya", ...] */
+    private ?array $effects = null;
 
     /** @return array{0: CarbonImmutable, 1: CarbonImmutable} tanggal awal & akhir (inklusif) */
     public function range(string $period, CarbonImmutable $date): array
@@ -77,9 +86,7 @@ class FinanceService
             'period' => ['type' => $period, 'start' => $start->toDateString(), 'end' => $end->toDateString()],
             'summary' => $r['summary'],
             'breakdown' => $breakdown,
-            'operational_costs' => $r['entries']
-                ->filter(fn ($e) => $e['type'] === 'keluar' && ! in_array($e['category'], self::NON_OPERATIONAL, true))
-                ->values(),
+            'operational_costs' => $r['entries']->where('effect', 'biaya')->values(),
             'charts' => [
                 'cashflow' => $cashflow->map(fn ($b) => [
                     'start' => $b['start'], 'end' => $b['end'], 'label' => $b['label'],
@@ -169,11 +176,11 @@ class FinanceService
         })->values();
     }
 
-    /** Total kas keluar per jenis, terbesar dulu. */
+    /** Total kas keluar per kategori (biaya operasional dirinci: Gaji, Sewa, ...), terbesar dulu. */
     private function expenseByCategory(Collection $entries): Collection
     {
         return $entries->where('type', 'keluar')
-            ->groupBy('category')
+            ->groupBy(fn ($e) => $e['subcategory'] ?? $e['category'])
             ->map(fn (Collection $rows, string $category) => ['category' => $category, 'amount' => (int) $rows->sum('amount')])
             ->sortByDesc('amount')
             ->values();
@@ -231,6 +238,7 @@ class FinanceService
     {
         $search = trim((string) $search);
         $range = [$start->toDateString(), $end->toDateString()];
+        $this->forgetEffects(); // muat ulang efek jenis (bisa saja baru ditambah admin)
 
         $rows = collect();
 
@@ -254,6 +262,72 @@ class FinanceService
             ->values();
     }
 
+    /**
+     * Daftar jenis per arah: bawaan sesuai urutan, tambahan admin menurut abjad.
+     *
+     * @return array{keluar: list<array{name: string, effect: string, has_subcategory: bool}>, masuk: list<array>}
+     */
+    public function types(): array
+    {
+        $rows = DB::table('cash_types')->orderBy('sort_order')->orderByRaw('lower(name)')->get();
+
+        return collect(['keluar', 'masuk'])->mapWithKeys(fn (string $dir) => [$dir => $rows->where('direction', $dir)
+            ->map(fn ($t) => ['name' => $t->name, 'effect' => $t->effect, 'has_subcategory' => (bool) $t->has_subcategory])
+            ->values()->all()])->all();
+    }
+
+    /** Jenis tersimpan (pencarian tanpa beda huruf besar/kecil), null bila tidak ada. */
+    public function findType(string $direction, string $name): ?object
+    {
+        return DB::table('cash_types')
+            ->where('direction', $direction)
+            ->whereRaw('lower(name) = lower(?)', [trim($name)])
+            ->first();
+    }
+
+    /** Efek satu jenis. Jenis lama yang tidak ada di cash_types mengikuti aturan sebelumnya. */
+    public function effectOf(string $direction, string $category): string
+    {
+        $this->effects ??= DB::table('cash_types')->get(['direction', 'name', 'effect'])
+            ->mapWithKeys(fn ($t) => [$t->direction.'|'.mb_strtolower($t->name) => $t->effect])->all();
+
+        return $this->effects[$direction.'|'.mb_strtolower($category)] ?? match (true) {
+            $direction === 'keluar' => in_array($category, ['Pembelian barang', 'Prive pemilik'], true) ? 'bukan_biaya' : 'biaya',
+            in_array($category, self::SALE_CATEGORIES, true) => 'penjualan',
+            $category === 'Prive masuk' => 'modal',
+            default => 'pemasukan',
+        };
+    }
+
+    /** Lupakan efek yang sudah dimuat (setelah jenis baru ditambah). */
+    public function forgetEffects(): void
+    {
+        $this->effects = null;
+    }
+
+    /**
+     * Daftar kategori per jenis: bawaan sesuai urutan, tambahan admin menurut abjad, "Lainnya" terakhir.
+     *
+     * @return array<string, list<string>>
+     */
+    public function categories(): array
+    {
+        $rows = DB::table('cash_categories')->orderBy('sort_order')->orderByRaw('lower(name)')->get(['parent', 'name']);
+
+        return collect(self::WITH_SUBCATEGORY)
+            ->mapWithKeys(fn (string $parent) => [$parent => $rows->where('parent', $parent)->pluck('name')->values()->all()])
+            ->all();
+    }
+
+    /** Nama kategori persis seperti tersimpan (pencarian tanpa beda huruf besar/kecil), null bila tidak ada. */
+    public function findCategory(string $parent, string $name): ?string
+    {
+        return DB::table('cash_categories')
+            ->where('parent', $parent)
+            ->whereRaw('lower(name) = lower(?)', [trim($name)])
+            ->value('name');
+    }
+
     /** Bentuk baris buku kas untuk satu catatan manual (dipakai respons POST). */
     public function cashEntryRow(object $e): array
     {
@@ -263,6 +337,8 @@ class FinanceService
             'source' => 'manual',
             'type' => $e->type,
             'category' => $e->category,
+            'subcategory' => $e->subcategory ?? null,
+            'effect' => $this->effectOf($e->type, $e->category),
             'amount' => (int) $e->amount,
             'date' => substr((string) $e->entry_date, 0, 10),
             'method' => $e->method,
@@ -302,6 +378,8 @@ class FinanceService
                 'source' => 'penjualan',
                 'type' => 'masuk',
                 'category' => $first ? 'Penjualan' : 'Pelunasan piutang',
+                'subcategory' => null,
+                'effect' => 'penjualan',
                 'amount' => (int) $r->amount,
                 'date' => (string) $r->date,
                 'method' => $r->method,
@@ -328,6 +406,8 @@ class FinanceService
                 'source' => 'pembelian',
                 'type' => 'keluar',
                 'category' => 'Pembelian barang',
+                'subcategory' => null,
+                'effect' => 'bukan_biaya',
                 'amount' => (int) $r->amount,
                 'date' => substr((string) $r->paid_at, 0, 10),
                 'method' => $r->method === 'transfer_bank' ? 'transfer' : $r->method,
@@ -414,7 +494,10 @@ class FinanceService
         $penjualanManual = $sum(fn ($e) => $e['source'] === 'manual' && $e['category'] === 'Penjualan');
         $penjualan = (int) $sales->sum('total') + $penjualanManual;
         $hpp = (int) $sales->sum('hpp');
-        $biayaOperasional = $sum(fn ($e) => $e['type'] === 'keluar' && ! in_array($e['category'], self::NON_OPERATIONAL, true));
+        $biayaOperasional = $sum(fn ($e) => $e['type'] === 'keluar' && $e['effect'] === 'biaya');
+        $bayarPemasok = $sum(fn ($e) => $e['type'] === 'keluar' && $e['category'] === 'Pembelian barang');
+        $prive = $sum(fn ($e) => $e['type'] === 'keluar' && $e['category'] === 'Prive pemilik');
+        $masukModal = $sum(fn ($e) => $e['type'] === 'masuk' && $e['effect'] === 'modal');
         $labaKotor = $penjualan - $hpp;
 
         return [
@@ -428,9 +511,12 @@ class FinanceService
             'kas_masuk' => $kasMasuk,
             'kas_keluar' => $kasKeluar,
             'masuk_penjualan' => $masukPenjualan,
-            'masuk_lainnya' => $kasMasuk - $masukPenjualan,
-            'bayar_pemasok' => $sum(fn ($e) => $e['type'] === 'keluar' && $e['category'] === 'Pembelian barang'),
-            'prive' => $sum(fn ($e) => $e['type'] === 'keluar' && $e['category'] === 'Prive pemilik'),
+            'masuk_modal' => $masukModal,
+            'masuk_lainnya' => $kasMasuk - $masukPenjualan - $masukModal,
+            'bayar_pemasok' => $bayarPemasok,
+            'prive' => $prive,
+            // Jenis "bukan biaya" buatan admin selain pembelian & prive (mis. "Cicilan pinjaman")
+            'keluar_lainnya' => $kasKeluar - $bayarPemasok - $biayaOperasional - $prive,
             'arus_kas_bersih' => $kasMasuk - $kasKeluar,
             'jumlah_transaksi' => (int) $sales->sum('jumlah'),
         ];

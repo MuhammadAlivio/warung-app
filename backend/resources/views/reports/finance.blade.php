@@ -49,10 +49,18 @@
             <table class="box">
                 <tr><td>Saldo awal</td><td class="num">{{ $rp($s['saldo_awal']) }}</td></tr>
                 <tr><td>Penjualan dibayar</td><td class="num pos">+ {{ $rp($s['masuk_penjualan']) }}</td></tr>
+                @if ($s['masuk_modal'] > 0)
+                <tr><td>Modal pemilik</td><td class="num pos">+ {{ $rp($s['masuk_modal']) }}</td></tr>
+                @endif
                 <tr><td>Pemasukan lain</td><td class="num pos">+ {{ $rp($s['masuk_lainnya']) }}</td></tr>
                 <tr><td>Bayar pemasok</td><td class="num neg">− {{ $rp($s['bayar_pemasok']) }}</td></tr>
                 <tr><td>Operasional</td><td class="num neg">− {{ $rp($s['biaya_operasional']) }}</td></tr>
+                @if ($s['keluar_lainnya'] > 0)
+                <tr><td>Pengeluaran lain</td><td class="num neg">− {{ $rp($s['keluar_lainnya']) }}</td></tr>
+                @endif
+                @if ($s['prive'] > 0){{-- catatan lama; jenis Prive pemilik tidak bisa dipilih lagi --}}
                 <tr><td>Prive pemilik</td><td class="num">− {{ $rp($s['prive']) }}</td></tr>
+                @endif
                 <tr><td><strong>Arus kas bersih</strong></td><td class="num {{ $s['arus_kas_bersih'] < 0 ? 'neg' : 'pos' }}"><strong>{{ $s['arus_kas_bersih'] < 0 ? '−' : '+' }} {{ $rp(abs($s['arus_kas_bersih'])) }}</strong></td></tr>
                 <tr class="total"><td>Saldo akhir</td><td class="num">{{ $rp($s['saldo_akhir']) }}</td></tr>
             </table>
@@ -99,12 +107,12 @@
 
     <h2>Biaya operasional</h2>
     <table class="list">
-        <thead><tr><th>Tanggal</th><th>Jenis</th><th>Keterangan</th><th class="num">Jumlah</th></tr></thead>
+        <thead><tr><th>Tanggal</th><th>Kategori</th><th>Keterangan</th><th class="num">Jumlah</th></tr></thead>
         <tbody>
         @forelse ($operational as $e)
             <tr>
                 <td>{{ $fmtDate($e['date']) }}</td>
-                <td>{{ $e['category'] }}</td>
+                <td>{{ $e['subcategory'] ?? $e['category'] }}</td>
                 <td>{{ $e['description'] ?? '—' }}</td>
                 <td class="num">{{ $rp($e['amount']) }}</td>
             </tr>

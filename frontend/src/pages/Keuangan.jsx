@@ -15,22 +15,26 @@ import {
 } from "lucide-react";
 import DashboardLayout from "../lib/components/layout/DashboardLayout";
 import FinanceCharts from "../lib/components/finance/FinanceCharts";
+import CategoryCombobox from "../lib/components/finance/CategoryCombobox";
 import { Button, Card } from "../lib/components/ui";
 import Pagination from "../lib/components/ui/Pagination";
 import { formatRupiah } from "../lib/utils/format";
 import { cn } from "../lib/utils/cn";
 import { getStoreProfile } from "../lib/utils/pos";
 import {
+  addFinanceCategory,
+  addFinanceType,
   createFinanceEntry,
   deleteFinanceEntry,
   downloadFinanceReport,
   updateFinanceEntry,
+  useFinanceCategories,
+  useFinanceTypes,
   useFinanceEntries,
   useFinanceReport,
 } from "../lib/hooks/useFinance";
 import {
-  FINANCE_CATEGORIES_IN,
-  FINANCE_CATEGORIES_OUT,
+  FINANCE_AUTO_CATEGORIES_IN,
 } from "../lib/data/financeMockData";
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -96,13 +100,57 @@ function getWeeksInMonth(d) {
   return weeks;
 }
 
+/** Label rincian baris kas: kategori bila ada ("Gaji"), selain itu jenisnya ("Pembelian barang"). */
+function entryLabel(e) {
+  return e.subcategory || e.category;
+}
+
 // ── Catat Modal ──────────────────────────────────────────────────────────────
 
+/** Pilihan "dihitung sebagai" saat menambah jenis baru (sama dengan FinanceService::EFFECTS). */
+const EFFECT_OPTIONS = {
+  keluar: [
+    { value: "biaya", label: "Biaya usaha", hint: "Kas berkurang dan laba usaha berkurang. Mis. iuran sampah, servis kulkas." },
+    { value: "bukan_biaya", label: "Bukan biaya", hint: "Hanya kas berkurang, laba tidak berubah. Mis. cicilan pinjaman, beli etalase." },
+  ],
+  masuk: [
+    { value: "pemasukan", label: "Pemasukan lain", hint: "Kas bertambah, bukan dari penjualan. Mis. bunga bank, sewa lahan parkir." },
+    { value: "modal", label: "Modal pemilik", hint: "Uang pribadi pemilik yang dimasukkan ke toko." },
+  ],
+};
+
+/** Efek jenis ke laporan; jenis lama yang tidak ada di daftar mengikuti aturan lama (sama dengan backend). */
+function typeEffect(types, direction, category) {
+  const found = types?.[direction]?.find((t) => t.name === category);
+  if (found) return found.effect;
+  if (direction === "keluar") return ["Pembelian barang", "Prive pemilik"].includes(category) ? "bukan_biaya" : "biaya";
+  return category === "Prive masuk" ? "modal" : "pemasukan";
+}
+
+/** Penjelasan pengaruh catatan ke laporan, sesuai cara FinanceService menghitungnya. */
+function previewText(effect, category, amount) {
+  switch (effect) {
+    case "biaya":
+      return `Kas berkurang ${amount} dan laba usaha berkurang ${amount}.`;
+    case "bukan_biaya":
+      if (category === "Pembelian barang") return `Kas berkurang ${amount}. Laba usaha tidak berubah karena dicatat sebagai belanja stok.`;
+      if (category === "Prive pemilik") return `Kas berkurang ${amount}. Laba usaha tidak berubah karena ini pengambilan pribadi pemilik.`;
+      return `Kas berkurang ${amount}. Laba usaha tidak berubah karena bukan biaya usaha.`;
+    case "modal":
+      return `Kas bertambah ${amount} sebagai modal dari pemilik. Laba usaha tidak berubah.`;
+    default:
+      return `Kas bertambah ${amount}. Tidak dihitung sebagai penjualan.`;
+  }
+}
+
 /** Catat baru, atau ubah/hapus catatan manual bila `entry` (baris buku kas) diisi. */
-function CatatModal({ open, onClose, onSave, entry = null, onDelete }) {
+function CatatModal({ open, onClose, onSave, entry = null, onDelete, types, onTypesChange, categories, onCategoriesChange }) {
   const [jenis, setJenis] = useState("keluar");
-  const [jenisTipe, setJenisTipe] = useState("");
   const [category, setCategory] = useState("");
+  const [subcategory, setSubcategory] = useState("");
+  // Jenis baru yang sedang dibuat: menunggu admin memilih "dihitung sebagai"
+  const [newType, setNewType] = useState(null); // { name, effect }
+  const [newTypeSaving, setNewTypeSaving] = useState(false);
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(isoDate(new Date()));
   const [method, setMethod] = useState("tunai");
@@ -117,11 +165,12 @@ function CatatModal({ open, onClose, onSave, entry = null, onDelete }) {
     if (!open) return;
     setJenis(entry?.type ?? "keluar");
     setCategory(entry?.category ?? "");
+    setSubcategory(entry?.subcategory ?? "");
+    setNewType(null);
     setAmount(entry ? String(entry.amount) : "");
     setDate(entry?.date ?? isoDate(new Date()));
     setMethod(entry?.method ?? "tunai");
     setDescription(entry?.description ?? "");
-    setJenisTipe("");
     setError("");
     setConfirmDelete(false);
     setDeleteReason("");
@@ -145,26 +194,82 @@ function CatatModal({ open, onClose, onSave, entry = null, onDelete }) {
     }
   }
 
-  const OUT_TYPES = [
-    { value: "biaya_operasional", label: "Biaya operasional" },
-    { value: "prive_pemilik", label: "Prive pemilik" },
-  ];
-  const IN_TYPES = [
-    { value: "penjualan", label: "Penjualan" },
-    { value: "pelunasan", label: "Pelunasan piutang" },
-  ];
-  const categoryOptions = jenis === "masuk" ? FINANCE_CATEGORIES_IN : FINANCE_CATEGORIES_OUT;
+  // Jenis yang bisa dipilih. Catatan lama berjenis yang sudah dihapus dari daftar (mis. "Prive pemilik")
+  // tetap ditampilkan saat diubah supaya bisa diperbaiki tanpa mengganti jenisnya.
+  const typeList = types?.[jenis] ?? [];
+  const baseOptions = typeList.map((t) => t.name);
+  const categoryOptions = entry && entry.type === jenis && entry.category && !baseOptions.includes(entry.category)
+    ? [...baseOptions, entry.category]
+    : baseOptions;
+  const needsSub = !!typeList.find((t) => t.name === category)?.has_subcategory;
+  const subOptions = categories?.[category] ?? [];
+  const effect = typeEffect(types, jenis, category);
+
+  function chooseCategory(value) {
+    setCategory(value);
+    setSubcategory("");
+    setError("");
+  }
+
+  /** Kotak jenis memilih "+ Tambah": tampilkan pilihan efek dulu, simpan setelah dipilih. */
+  async function handleAddType(name) {
+    setError("");
+    setNewType({ name, effect: "" });
+    return null;
+  }
+
+  async function saveNewType() {
+    if (!newType.effect) {
+      setError("Pilih cara jenis baru ini dihitung di laporan.");
+      return;
+    }
+    setNewTypeSaving(true);
+    setError("");
+    try {
+      const res = await addFinanceType(jenis, newType.name, newType.effect);
+      onTypesChange(res.types);
+      chooseCategory(res.type.name);
+      setNewType(null);
+    } catch (err) {
+      const firstFieldError = err.data?.errors && Object.values(err.data.errors)[0]?.[0];
+      setError(firstFieldError || err.message || "Gagal menambah jenis.");
+    } finally {
+      setNewTypeSaving(false);
+    }
+  }
+
+  /** Dipanggil kotak kategori saat memilih "+ Tambah "…"". Mengembalikan nama tersimpan. */
+  async function handleAddSub(name) {
+    setError("");
+    try {
+      const res = await addFinanceCategory(category, name);
+      onCategoriesChange(res.categories);
+      return res.name;
+    } catch (err) {
+      const firstFieldError = err.data?.errors && Object.values(err.data.errors)[0]?.[0];
+      setError(firstFieldError || err.message || "Gagal menambah kategori.");
+      throw err;
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (newType) {
+      setError("Simpan atau batalkan dulu jenis baru.");
+      return;
+    }
     if (!category || !amount) {
       setError("Jenis dan jumlah wajib diisi.");
+      return;
+    }
+    if (needsSub && !subcategory) {
+      setError("Pilih kategori, atau ketik nama lalu pilih \"Tambah\" untuk kategori baru.");
       return;
     }
     setSaving(true);
     setError("");
     try {
-      await onSave({ type: jenis, category, amount: Number(amount), date, description, method });
+      await onSave({ type: jenis, category, subcategory: needsSub ? subcategory : null, amount: Number(amount), date, description, method });
       onClose();
     } catch (err) {
       const firstFieldError = err.data?.errors && Object.values(err.data.errors)[0]?.[0];
@@ -175,9 +280,7 @@ function CatatModal({ open, onClose, onSave, entry = null, onDelete }) {
   }
 
   const netAmount = Number(amount) || 0;
-  const preview = jenis === "keluar"
-    ? `Kas berkurang Rp${netAmount.toLocaleString("id-ID")} dan laba usaha berkurang Rp${netAmount.toLocaleString("id-ID")} sebagai biaya operasional.`
-    : `Kas bertambah Rp${netAmount.toLocaleString("id-ID")}.`;
+  const preview = previewText(effect, category, `Rp${netAmount.toLocaleString("id-ID")}`);
 
   if (!open) return null;
 
@@ -208,7 +311,7 @@ function CatatModal({ open, onClose, onSave, entry = null, onDelete }) {
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => { setJenis("keluar"); setCategory(""); }}
+                  onClick={() => { setJenis("keluar"); chooseCategory(""); setNewType(null); }}
                   className={cn(
                     "flex h-10 items-center justify-center gap-1.5 rounded-lg border text-xs font-semibold transition-colors",
                     jenis === "keluar"
@@ -220,7 +323,7 @@ function CatatModal({ open, onClose, onSave, entry = null, onDelete }) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setJenis("masuk"); setCategory(""); }}
+                  onClick={() => { setJenis("masuk"); chooseCategory(""); setNewType(null); }}
                   className={cn(
                     "flex h-10 items-center justify-center gap-1.5 rounded-lg border text-xs font-semibold transition-colors",
                     jenis === "masuk"
@@ -235,34 +338,85 @@ function CatatModal({ open, onClose, onSave, entry = null, onDelete }) {
 
             {/* Jenis */}
             <div>
-              <label className="mb-1.5 block text-xs font-semibold text-neutral-900">Jenis</label>
-              <select
+              <label htmlFor="catat-jenis" className="mb-1.5 block text-xs font-semibold text-neutral-900">Jenis</label>
+              <CategoryCombobox
+                key={jenis /* daftar berganti saat arah transaksi berganti */}
+                id="catat-jenis"
+                noun="jenis"
                 value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-xs text-neutral-900 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15"
-              >
-                <option value="">Pilih jenis</option>
-                {categoryOptions.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
+                options={categoryOptions}
+                onChange={chooseCategory}
+                onAdd={handleAddType}
+              />
+
+              {/* Jenis baru: wajib memilih cara dihitung di laporan sebelum disimpan */}
+              {newType && (
+                <div className="mt-2 space-y-2 rounded-lg border border-brand-100 bg-brand-50/60 p-3">
+                  <p className="text-xs font-semibold text-neutral-900">
+                    Jenis baru: <span className="text-brand-700">{newType.name}</span>
+                  </p>
+                  <fieldset>
+                    <legend className="mb-1.5 text-[11px] text-neutral-600">Dihitung sebagai apa di laporan?</legend>
+                    <div className="space-y-1.5">
+                      {EFFECT_OPTIONS[jenis].map((opt) => (
+                        <label
+                          key={opt.value}
+                          className={cn(
+                            "flex cursor-pointer items-start gap-2 rounded-lg border bg-white px-3 py-2 transition-colors",
+                            newType.effect === opt.value ? "border-brand-600 ring-2 ring-brand-600/15" : "border-neutral-200 hover:border-neutral-300",
+                          )}
+                        >
+                          <input
+                            type="radio"
+                            name="new-type-effect"
+                            value={opt.value}
+                            checked={newType.effect === opt.value}
+                            onChange={() => { setNewType({ ...newType, effect: opt.value }); setError(""); }}
+                            className="mt-0.5 accent-brand-600"
+                          />
+                          <span>
+                            <span className="block text-xs font-semibold text-neutral-900">{opt.label}</span>
+                            <span className="block text-[11px] text-neutral-500">{opt.hint}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                  <p className="text-[11px] text-neutral-500">Pilihan ini tidak bisa diubah setelah disimpan.</p>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setNewType(null); setError(""); }}
+                      className="h-8 rounded-lg px-3 text-xs font-semibold text-neutral-600 hover:bg-white"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveNewType}
+                      disabled={newTypeSaving}
+                      className="h-8 rounded-lg bg-brand-600 px-3 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+                    >
+                      {newTypeSaving ? "Menyimpan..." : "Simpan jenis"}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {!newType && <p className="mt-1 text-[11px] text-neutral-400">Tidak ada di daftar? Ketik namanya lalu pilih "Tambah".</p>}
             </div>
 
-            {/* Kategori */}
-            {category && (
+            {/* Kategori: hanya untuk Biaya operasional & Pemasukan lain, bisa ditambah admin */}
+            {needsSub && (
               <div>
-                <label className="mb-1.5 block text-xs font-semibold text-neutral-900">Kategori</label>
-                <select
-                  value={jenisTipe}
-                  onChange={(e) => setJenisTipe(e.target.value)}
-                  className="h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-xs text-neutral-900 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15"
-                >
-                  <option value="">Transportasi</option>
-                  <option value="listrik">Listrik & Air</option>
-                  <option value="sewa">Sewa toko</option>
-                  <option value="gaji">Gaji</option>
-                  <option value="lainnya">Biaya lainnya</option>
-                </select>
+                <label htmlFor="catat-kategori" className="mb-1.5 block text-xs font-semibold text-neutral-900">Kategori</label>
+                <CategoryCombobox
+                  id="catat-kategori"
+                  value={subcategory}
+                  options={subOptions}
+                  onChange={(name) => { setSubcategory(name); setError(""); }}
+                  onAdd={handleAddSub}
+                />
+                <p className="mt-1 text-[11px] text-neutral-400">Tidak ada di daftar? Ketik namanya lalu pilih "Tambah".</p>
               </div>
             )}
 
@@ -322,7 +476,7 @@ function CatatModal({ open, onClose, onSave, entry = null, onDelete }) {
             </div>
 
             {/* Preview */}
-            {netAmount > 0 && (
+            {netAmount > 0 && category && (
               <div className="flex items-start gap-2 rounded-lg bg-brand-50 px-3 py-2.5 text-xs text-brand-700">
                 <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <div>
@@ -578,7 +732,7 @@ function SemuaKasModal({ open, ...props }) {
   return open ? <SemuaKasPanel {...props} /> : null;
 }
 
-function SemuaKasPanel({ onClose, initialType, start, end, rangeLabel, refreshKey, onEdit }) {
+function SemuaKasPanel({ onClose, initialType, start, end, rangeLabel, refreshKey, onEdit, types, categories }) {
   const [type, setType] = useState(initialType);
   const [category, setCategory] = useState("");
   const [q, setQ] = useState("");
@@ -592,7 +746,9 @@ function SemuaKasPanel({ onClose, initialType, start, end, rangeLabel, refreshKe
     refreshKey,
   );
 
-  const categories = type === "masuk" ? FINANCE_CATEGORIES_IN : FINANCE_CATEGORIES_OUT;
+  // Filter: jenis (termasuk penjualan otomatis dari Kasir) lalu kategori per jenis
+  const jenisOptions = [...(type === "masuk" ? FINANCE_AUTO_CATEGORIES_IN : []), ...(types?.[type] ?? []).map((t) => t.name)];
+  const subGroups = jenisOptions.filter((j) => categories?.[j]?.length);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 py-6">
@@ -624,7 +780,15 @@ function SemuaKasPanel({ onClose, initialType, start, end, rangeLabel, refreshKe
           </div>
           <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Filter jenis" className={FIELD_SM}>
             <option value="">Semua jenis</option>
-            {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+            <optgroup label="Jenis">
+              {jenisOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+            </optgroup>
+            {subGroups.map((j) => (
+              <optgroup key={j} label={`Kategori ${j.toLowerCase()}`}>
+                {/* "Lainnya" ada di dua jenis; filter sudah dibatasi tab Masuk/Keluar */}
+                {categories[j].map((c) => <option key={`${j}-${c}`} value={c}>{c}</option>)}
+              </optgroup>
+            ))}
           </select>
           <div className="relative min-w-[180px] flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" aria-hidden />
@@ -663,6 +827,7 @@ function SemuaKasPanel({ onClose, initialType, start, end, rangeLabel, refreshKe
                     <td className="px-4 py-3 whitespace-nowrap text-neutral-500">{formatShortDate(toDate(e.date))}</td>
                     <td className="px-4 py-3 text-neutral-700">
                       {e.category}
+                      {e.subcategory && <span className="block text-[11px] text-neutral-400">{e.subcategory}</span>}
                       {!manual && (
                         <span className="ml-1.5 rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] font-semibold text-neutral-500">{SOURCE_LABEL[e.source]}</span>
                       )}
@@ -718,8 +883,8 @@ function SemuaKasPanel({ onClose, initialType, start, end, rangeLabel, refreshKe
 
 const EMPTY_SUMMARY = {
   pemasukan: 0, pengeluaran: 0, penjualan: 0, hpp: 0, laba_kotor: 0, biaya_operasional: 0,
-  laba_usaha: 0, kas_masuk: 0, kas_keluar: 0, masuk_penjualan: 0, masuk_lainnya: 0,
-  bayar_pemasok: 0, prive: 0, arus_kas_bersih: 0, saldo_awal: 0, saldo_akhir: 0, piutang: 0, jumlah_transaksi: 0,
+  laba_usaha: 0, kas_masuk: 0, kas_keluar: 0, masuk_penjualan: 0, masuk_modal: 0, masuk_lainnya: 0,
+  bayar_pemasok: 0, keluar_lainnya: 0, prive: 0, arus_kas_bersih: 0, saldo_awal: 0, saldo_akhir: 0, piutang: 0, jumlah_transaksi: 0,
 };
 
 const signedRupiah = (n) => `${n < 0 ? "− " : "+ "}${formatRupiah(Math.abs(n))}`;
@@ -736,6 +901,8 @@ export default function KeuanganPage() {
   const [semuaOpen, setSemuaOpen] = useState(false);
 
   const { report, loading, error, reload } = useFinanceReport(tab, isoDate(currentDate));
+  const { categories: cashCategories, setCategories: setCashCategories } = useFinanceCategories();
+  const { types: cashTypes, setTypes: setCashTypes } = useFinanceTypes();
 
   // Muat ulang laporan + semua daftar kas setelah catatan ditambah / diubah / dihapus
   function refreshAll() {
@@ -781,7 +948,8 @@ export default function KeuanganPage() {
   const stats = {
     pemasukan: s.pemasukan, pengeluaran: s.pengeluaran, penjualan: s.penjualan, hppTerjual: s.hpp,
     labaKotor: s.laba_kotor, biayaOperasional: s.biaya_operasional, prive: s.prive, labaUsaha: s.laba_usaha,
-    masukPenjualan: s.masuk_penjualan, masukLainnya: s.masuk_lainnya, bayarPemasok: s.bayar_pemasok,
+    masukPenjualan: s.masuk_penjualan, masukModal: s.masuk_modal ?? 0, masukLainnya: s.masuk_lainnya, bayarPemasok: s.bayar_pemasok,
+    keluarLainnya: s.keluar_lainnya ?? 0,
     arusKasBersih: s.arus_kas_bersih, saldoAwal: s.saldo_awal, saldoAkhir: s.saldo_akhir, piutang: s.piutang,
   };
 
@@ -1029,6 +1197,12 @@ export default function KeuanganPage() {
               <span className="text-neutral-600">Penjualan dibayar</span>
               <span className="tabular-nums font-semibold text-green-600">+ {formatRupiah(stats.masukPenjualan)}</span>
             </div>
+            {stats.masukModal > 0 && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-neutral-600">Modal pemilik</span>
+                <span className="tabular-nums font-semibold text-green-600">+ {formatRupiah(stats.masukModal)}</span>
+              </div>
+            )}
             {stats.masukLainnya > 0 && (
               <div className="flex items-center justify-between text-xs">
                 <span className="text-neutral-600">Pemasukan lain</span>
@@ -1043,10 +1217,20 @@ export default function KeuanganPage() {
               <span className="text-neutral-500">Operasional</span>
               <span className="tabular-nums text-red-600">− {formatRupiah(stats.biayaOperasional)}</span>
             </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-neutral-500">Prive pemilik</span>
-              <span className="tabular-nums text-neutral-500">− {formatRupiah(stats.prive)}</span>
-            </div>
+            {/* Jenis "bukan biaya" buatan admin, mis. cicilan pinjaman */}
+            {stats.keluarLainnya > 0 && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-neutral-500">Pengeluaran lain</span>
+                <span className="tabular-nums text-red-600">− {formatRupiah(stats.keluarLainnya)}</span>
+              </div>
+            )}
+            {/* Hanya muncul untuk catatan lama; jenis Prive pemilik tidak bisa dipilih lagi */}
+            {stats.prive > 0 && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-neutral-500">Prive pemilik</span>
+                <span className="tabular-nums text-neutral-500">− {formatRupiah(stats.prive)}</span>
+              </div>
+            )}
             <div className="border-t border-neutral-100 pt-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-semibold text-neutral-700">Arus kas bersih</span>
@@ -1162,7 +1346,10 @@ export default function KeuanganPage() {
                   <td className="px-4 py-3 text-neutral-500">
                     {toDate(e.date).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}
                   </td>
-                  <td className="px-4 py-3 text-neutral-700">{e.description || e.category}</td>
+                  <td className="px-4 py-3 text-neutral-700">
+                    {e.description || entryLabel(e)}
+                    {e.description && <span className="ml-1.5 text-[11px] text-neutral-400">{entryLabel(e)}</span>}
+                  </td>
                   <td className="px-4 py-3 text-neutral-500 capitalize">{e.method || "Tunai"}</td>
                   <td className="px-4 py-3 tabular-nums text-right text-neutral-700">{formatRupiah(e.amount)}</td>
                 </tr>
@@ -1222,9 +1409,9 @@ export default function KeuanganPage() {
                   </td>
                   <td className="px-4 py-3 text-neutral-700">{e.customer_name ?? "—"}</td>
                   <td className="px-4 py-3 text-neutral-700">
-                    {e.description || e.category}
-                    {e.description && e.description !== e.category && (
-                      <span className="ml-1.5 text-[11px] text-neutral-400">{e.category}</span>
+                    {e.description || entryLabel(e)}
+                    {e.description && e.description !== entryLabel(e) && (
+                      <span className="ml-1.5 text-[11px] text-neutral-400">{entryLabel(e)}</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-neutral-500 capitalize">{e.method || "Tunai"}</td>
@@ -1266,6 +1453,8 @@ export default function KeuanganPage() {
         rangeLabel={rangeLabel}
         refreshKey={incomeRefresh}
         onEdit={openEdit}
+        types={cashTypes}
+        categories={cashCategories}
       />
       <UnduhModal open={unduhOpen} onClose={() => setUnduhOpen(false)} defaultStart={startDate} defaultEnd={endDate} />
       <CatatModal
@@ -1274,6 +1463,10 @@ export default function KeuanganPage() {
         onClose={() => { setCatatOpen(false); setEditEntry(null); }}
         onSave={handleSave}
         onDelete={handleDelete}
+        types={cashTypes}
+        categories={cashCategories}
+        onCategoriesChange={setCashCategories}
+        onTypesChange={setCashTypes}
       />
     </DashboardLayout>
   );

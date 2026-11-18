@@ -64,10 +64,11 @@ class FinanceController extends Controller
         $rows = $this->finance->entries($start, $end, $data['type'] ?? null, $data['search'] ?? null);
 
         if (filled($data['category'] ?? null)) {
-            $rows = $rows->where('category', $data['category'])->values();
+            // Cocok dengan jenis ("Biaya operasional") maupun kategori ("Gaji")
+            $rows = $rows->filter(fn ($r) => $r['category'] === $data['category'] || $r['subcategory'] === $data['category'])->values();
         }
         if (filled($q = trim($data['q'] ?? ''))) {
-            $rows = $rows->filter(fn ($r) => collect([$r['description'], $r['category'], $r['customer_name'], $r['reference']])
+            $rows = $rows->filter(fn ($r) => collect([$r['description'], $r['category'], $r['subcategory'], $r['customer_name'], $r['reference']])
                 ->contains(fn ($v) => $v !== null && mb_stripos($v, $q) !== false))->values();
         }
 
@@ -94,7 +95,7 @@ class FinanceController extends Controller
 
         $this->logger->record(
             $request, 'keuangan', 'tambah',
-            "Mencatat kas {$data['type']} {$data['category']} {$this->rupiah($data['amount'])}",
+            "Mencatat kas {$data['type']} {$this->label($entry)} {$this->rupiah($data['amount'])}",
             $entry,
         );
 
@@ -106,14 +107,14 @@ class FinanceController extends Controller
     {
         abort_if($entry->deleted_at !== null, 404);
 
-        $data = $this->validatedEntry($request);
-        $old = "{$entry->category} {$this->rupiah($entry->amount)}";
+        $data = $this->validatedEntry($request, $entry);
+        $old = "{$this->label($entry)} {$this->rupiah($entry->amount)}";
 
         $entry->update($this->entryFields($data));
 
         $this->logger->record(
             $request, 'keuangan', 'ubah',
-            "Mengubah catatan kas {$old} menjadi {$data['type']} {$data['category']} {$this->rupiah($data['amount'])}",
+            "Mengubah catatan kas {$old} menjadi {$data['type']} {$this->label($entry)} {$this->rupiah($data['amount'])}",
             $entry,
         );
 
@@ -142,11 +143,100 @@ class FinanceController extends Controller
 
         $this->logger->record(
             $request, 'keuangan', 'hapus',
-            "Menghapus catatan kas {$entry->type} {$entry->category} {$this->rupiah($entry->amount)}. Alasan: ".trim($data['reason']),
+            "Menghapus catatan kas {$entry->type} {$this->label($entry)} {$this->rupiah($entry->amount)}. Alasan: ".trim($data['reason']),
             $entry,
         );
 
         return response()->json(['message' => 'Catatan kas dihapus']);
+    }
+
+    /** GET /api/finance/types — jenis per arah: {"keluar": [{name, effect, has_subcategory}], "masuk": [...]} */
+    public function types(): JsonResponse
+    {
+        return response()->json(['data' => $this->finance->types()]);
+    }
+
+    /**
+     * POST /api/finance/types {direction, name, effect} — tambah jenis beserta efeknya ke laporan.
+     * Nama yang sudah ada dikembalikan apa adanya (efeknya tidak diubah).
+     */
+    public function storeType(Request $request): JsonResponse
+    {
+        $direction = $request->input('direction');
+        $data = $request->validate([
+            'direction' => ['required', Rule::in(['masuk', 'keluar'])],
+            'name' => [
+                'required', 'string', 'min:2', 'max:50',
+                function (string $attribute, mixed $value, \Closure $fail) {
+                    $name = mb_strtolower(trim(preg_replace('/\s+/', ' ', (string) $value)));
+                    if (in_array($name, array_map('mb_strtolower', FinanceService::RESERVED_TYPES), true)) {
+                        $fail('Nama ini dipakai sistem (penjualan & pelunasan sudah otomatis dari Kasir). Pakai nama lain.');
+                    }
+                },
+            ],
+            'effect' => ['required', Rule::in(FinanceService::EFFECTS[$direction] ?? [])],
+        ], [
+            'name.required' => 'Nama jenis wajib diisi.',
+            'name.min' => 'Nama jenis minimal 2 karakter.',
+            'name.max' => 'Nama jenis maksimal 50 karakter.',
+            'effect.required' => 'Pilih cara jenis ini dihitung di laporan.',
+            'effect.in' => 'Pilih cara jenis ini dihitung di laporan.',
+        ]);
+
+        $name = preg_replace('/\s+/', ' ', trim($data['name']));
+
+        if ($existing = $this->finance->findType($data['direction'], $name)) {
+            return response()->json(['data' => $this->typeRow($existing), 'types' => $this->finance->types()]);
+        }
+
+        DB::table('cash_types')->insert([
+            'direction' => $data['direction'], 'name' => $name, 'effect' => $data['effect'],
+            'user_id' => $request->user()->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->finance->forgetEffects();
+
+        $effectLabel = ['biaya' => 'biaya (mengurangi laba)', 'bukan_biaya' => 'bukan biaya', 'pemasukan' => 'pemasukan lain', 'modal' => 'modal pemilik'][$data['effect']];
+        $this->logger->record($request, 'keuangan', 'tambah', "Menambah jenis kas {$data['direction']}: {$name}, dihitung sebagai {$effectLabel}");
+
+        return response()->json([
+            'data' => $this->typeRow($this->finance->findType($data['direction'], $name)),
+            'types' => $this->finance->types(),
+        ], 201);
+    }
+
+    /** GET /api/finance/categories — kategori per jenis, mis. {"Biaya operasional": ["Gaji", ...], "Pemasukan lain": [...]} */
+    public function categories(): JsonResponse
+    {
+        return response()->json(['data' => $this->finance->categories()]);
+    }
+
+    /** POST /api/finance/categories {parent, name} — tambah kategori; nama yang sudah ada dikembalikan apa adanya. */
+    public function storeCategory(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'parent' => ['required', Rule::in(FinanceService::WITH_SUBCATEGORY)],
+            'name' => ['required', 'string', 'min:2', 'max:50'],
+        ], [
+            'parent.in' => 'Kategori hanya untuk Biaya operasional dan Pemasukan lain.',
+            'name.required' => 'Nama kategori wajib diisi.',
+            'name.min' => 'Nama kategori minimal 2 karakter.',
+            'name.max' => 'Nama kategori maksimal 50 karakter.',
+        ]);
+
+        $name = preg_replace('/\s+/', ' ', trim($data['name']));
+
+        if ($existing = $this->finance->findCategory($data['parent'], $name)) {
+            return response()->json(['data' => ['parent' => $data['parent'], 'name' => $existing], 'categories' => $this->finance->categories()]);
+        }
+
+        DB::table('cash_categories')->insert([
+            'parent' => $data['parent'], 'name' => $name, 'user_id' => $request->user()->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->logger->record($request, 'keuangan', 'tambah', "Menambah kategori {$data['parent']}: {$name}");
+
+        return response()->json(['data' => ['parent' => $data['parent'], 'name' => $name], 'categories' => $this->finance->categories()], 201);
     }
 
     /** GET /api/finance/export?start=&end=&format=pdf|xlsx — unduh laporan rentang bebas (maks. 366 hari). */
@@ -196,22 +286,52 @@ class FinanceController extends Controller
         return [$start, $end];
     }
 
-    private function validatedEntry(Request $request): array
+    /**
+     * Validasi catatan manual. Saat mengubah ($existing), jenis lama yang sudah tidak bisa dipilih
+     * (mis. "Prive pemilik") tetap boleh dipertahankan supaya catatan lama masih bisa diperbaiki.
+     */
+    private function validatedEntry(Request $request, ?CashEntry $existing = null): array
     {
-        return $request->validate([
+        $type = (string) $request->input('type');
+        $category = (string) $request->input('category');
+        $keepsLegacy = $existing && $existing->type === $type && $existing->category === $category;
+        $found = in_array($type, ['masuk', 'keluar'], true) && filled($category) ? $this->finance->findType($type, $category) : null;
+        $needsSub = (bool) $found?->has_subcategory;
+
+        $data = $request->validate([
             'type' => ['required', Rule::in(['masuk', 'keluar'])],
             'category' => [
-                'required', 'string',
-                Rule::in($request->input('type') === 'masuk' ? FinanceService::CATEGORIES_IN : FinanceService::CATEGORIES_OUT),
+                'required', 'string', 'max:50',
+                function (string $attribute, mixed $value, \Closure $fail) use ($found, $keepsLegacy) {
+                    if (! $found && ! $keepsLegacy) {
+                        $fail('Jenis tidak sesuai dengan arah transaksi.');
+                    }
+                },
+            ],
+            'subcategory' => [
+                Rule::requiredIf($needsSub), 'nullable', 'string', 'max:50',
+                function (string $attribute, mixed $value, \Closure $fail) use ($request, $needsSub) {
+                    if ($needsSub && filled($value) && ! $this->finance->findCategory($request->input('category'), (string) $value)) {
+                        $fail('Kategori tidak ditemukan. Tambahkan dulu lewat "+ Tambah kategori".');
+                    }
+                },
             ],
             'amount' => ['required', 'integer', 'min:1', 'max:999999999999'],
             'date' => ['required', 'date_format:Y-m-d'],
             'method' => ['required', Rule::in(FinanceService::METHODS)],
             'description' => ['nullable', 'string', 'max:300'],
         ], [
-            'category.in' => 'Jenis tidak sesuai dengan arah transaksi.',
+            'subcategory.required' => 'Pilih kategori.',
             'amount.min' => 'Jumlah harus lebih dari 0.',
         ]);
+
+        // Simpan nama jenis & kategori persis seperti di daftar; jenis tanpa kategori selalu null
+        if ($found) {
+            $data['category'] = $found->name;
+        }
+        $data['subcategory'] = $needsSub ? $this->finance->findCategory($data['category'], $data['subcategory']) : null;
+
+        return $data;
     }
 
     private function entryFields(array $data): array
@@ -219,6 +339,7 @@ class FinanceController extends Controller
         return [
             'type' => $data['type'],
             'category' => $data['category'],
+            'subcategory' => $data['subcategory'],
             'amount' => $data['amount'],
             'entry_date' => $data['date'],
             'method' => $data['method'],
@@ -235,10 +356,23 @@ class FinanceController extends Controller
             ->select('ce.*', 'u.name as created_by')
             ->first();
 
+        $this->finance->forgetEffects();
         $result = $this->finance->cashEntryRow($row);
         unset($result['sort_key']);
 
         return $result;
+    }
+
+    /** @return array{name: string, direction: string, effect: string, has_subcategory: bool} */
+    private function typeRow(object $t): array
+    {
+        return ['name' => $t->name, 'direction' => $t->direction, 'effect' => $t->effect, 'has_subcategory' => (bool) $t->has_subcategory];
+    }
+
+    /** "Biaya operasional / Gaji" atau "Pembelian barang" (untuk Log Karyawan). */
+    private function label(CashEntry $entry): string
+    {
+        return $entry->subcategory ? "{$entry->category} / {$entry->subcategory}" : $entry->category;
     }
 
     private function rupiah(int $n): string

@@ -65,6 +65,10 @@ Route::middleware(['auth:sanctum', EnsureActive::class, LogActivity::class])->gr
         Route::put('/finance/entries/{entry}', [FinanceController::class, 'update'])->whereNumber('entry');
         Route::delete('/finance/entries/{entry}', [FinanceController::class, 'destroy'])->whereNumber('entry');
         Route::get('/finance/export', [FinanceController::class, 'export']);
+        Route::get('/finance/types', [FinanceController::class, 'types']);
+        Route::post('/finance/types', [FinanceController::class, 'storeType']);
+        Route::get('/finance/categories', [FinanceController::class, 'categories']);
+        Route::post('/finance/categories', [FinanceController::class, 'storeCategory']);
 
         // Pengaturan Profil Toko
         Route::post('/store-profile', [StoreProfileController::class, 'update']);

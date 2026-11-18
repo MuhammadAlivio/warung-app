@@ -114,28 +114,25 @@ class DemoKeuangan extends Command
                 // ── kas manual ──
                 $d = $day->day;
                 if ($d === 1) {
-                    $entryCount += $this->entry('keluar', 'Sewa toko', 1_500_000, $day, 'transfer', 'Sewa toko bulan '.$day->locale('id')->translatedFormat('F'), $adminId);
+                    $entryCount += $this->entry('keluar', 'Biaya operasional|Sewa toko', 1_500_000, $day, 'transfer', 'Sewa toko bulan '.$day->locale('id')->translatedFormat('F'), $adminId);
                 }
                 if ($d === 5) {
-                    $entryCount += $this->entry('keluar', 'Listrik & air', mt_rand(38, 52) * 10_000, $day, 'transfer', 'Tagihan PLN & PDAM', $adminId);
+                    $entryCount += $this->entry('keluar', 'Biaya operasional|Listrik & air', mt_rand(38, 52) * 10_000, $day, 'transfer', 'Tagihan PLN & PDAM', $adminId);
                 }
                 if ($day->isSaturday()) {
-                    $entryCount += $this->entry('keluar', 'Gaji', 600_000, $day, 'tunai', 'Gaji mingguan karyawan', $adminId);
+                    $entryCount += $this->entry('keluar', 'Biaya operasional|Gaji', 600_000, $day, 'tunai', 'Gaji mingguan karyawan', $adminId);
                 }
                 if (mt_rand(1, 3) === 1) {
-                    $entryCount += $this->entry('keluar', 'Transportasi', mt_rand(3, 12) * 10_000, $day, 'tunai', 'Bensin antar barang', $adminId);
+                    $entryCount += $this->entry('keluar', 'Biaya operasional|Transportasi', mt_rand(3, 12) * 10_000, $day, 'tunai', 'Bensin antar barang', $adminId);
                 }
                 if ($day->dayOfYear % 4 === 0) {
                     $entryCount += $this->entry('keluar', 'Pembelian barang', mt_rand(35, 55) * 100_000, $day, 'transfer', 'Belanja stok ke grosir', $adminId);
                 }
-                if (in_array($d, [10, 25], true)) {
-                    $entryCount += $this->entry('keluar', 'Prive pemilik', 500_000, $day, 'tunai', 'Ambil untuk kebutuhan rumah', $adminId);
-                }
                 if (mt_rand(1, 8) === 1) {
-                    $entryCount += $this->entry('keluar', 'Biaya lainnya', mt_rand(2, 15) * 5_000, $day, 'tunai', 'Plastik & kantong belanja', $adminId);
+                    $entryCount += $this->entry('keluar', 'Biaya operasional|Lainnya', mt_rand(2, 15) * 5_000, $day, 'tunai', 'Plastik & kantong belanja', $adminId);
                 }
                 if (mt_rand(1, 12) === 1) {
-                    $entryCount += $this->entry('masuk', 'Lainnya', mt_rand(5, 20) * 10_000, $day, 'tunai', 'Jual kardus bekas', $adminId);
+                    $entryCount += $this->entry('masuk', 'Pemasukan lain|Jual barang bekas', mt_rand(5, 20) * 10_000, $day, 'tunai', 'Jual kardus bekas', $adminId);
                 }
             }
 
@@ -196,11 +193,13 @@ class DemoKeuangan extends Command
         }
     }
 
+    /** $category = "Jenis" atau "Jenis|Kategori", mis. "Biaya operasional|Gaji". */
     private function entry(string $type, string $category, int $amount, CarbonImmutable $day, string $method, string $note, ?int $userId): int
     {
         $created = $day->setTime(mt_rand(8, 18), mt_rand(0, 59))->utc()->toDateTimeString();
         DB::table('cash_entries')->insert([
-            'type' => $type, 'category' => $category, 'amount' => $amount, 'entry_date' => $day->toDateString(),
+            'type' => $type, 'category' => explode('|', $category)[0], 'subcategory' => explode('|', $category)[1] ?? null,
+            'amount' => $amount, 'entry_date' => $day->toDateString(),
             'method' => $method, 'description' => "[DEMO] {$note}", 'user_id' => $userId,
             'created_at' => $created, 'updated_at' => $created,
         ]);
