@@ -97,6 +97,8 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // DB_PERSISTENT=true: pakai ulang koneksi antar-request (hemat ~0,8 dtk/request ke Supabase yang jauh)
+            'options' => env('DB_PERSISTENT', false) ? [PDO::ATTR_PERSISTENT => true] : [],
         ],
 
         'sqlsrv' => [
