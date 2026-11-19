@@ -3,7 +3,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { CalendarDays, FileText, Pencil, Printer, Search, Wallet, XCircle } from "lucide-react";
 import { Badge, Button, Card, Input, Pagination, Select } from "../lib/components/ui";
 import { cn } from "../lib/utils/cn";
-import { formatAngka, formatJam, formatRupiah, formatTanggal, printDoc, toInputDate } from "../lib/utils/pos";
+import { formatAngka, formatJam, formatRupiah, formatTanggal, formatTglJam, printDoc, toInputDate } from "../lib/utils/pos";
+import { api } from "../lib/api";
 import { useTransactions } from "../lib/stores/TransactionContext";
 import { useStockAdjust } from "../lib/hooks/useCatalog";
 import { useStock } from "../lib/stores/StockContext";
@@ -15,9 +16,36 @@ import InvoiceDocument from "../lib/components/pos/InvoiceDocument";
 import EditPaymentModal from "../lib/components/transaksi/EditPaymentModal";
 import CancelTransactionModal from "../lib/components/transaksi/CancelTransactionModal";
 
-const PAGE_SIZE = 6;
+const PAGE_SIZES = [10, 25, 50];
 const METHOD_OPTIONS = [{ value: "", label: "Semua metode" }, { value: "Tunai", label: "Tunai" }, { value: "TF", label: "TF" }];
 const STATUS_OPTIONS = [{ value: "", label: "Semua status" }, { value: "Lunas", label: "Lunas" }, { value: "Belum Lunas", label: "Belum Lunas" }, { value: "Dibatalkan", label: "Dibatalkan" }];
+
+const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return toInputDate(d); };
+const monthStart = () => { const d = new Date(); return toInputDate(new Date(d.getFullYear(), d.getMonth(), 1)); };
+const parseDate = (s) => new Date(s + "T00:00");
+
+const DATE_PRESETS = [
+  { key: "today", label: "Hari ini", range: () => [toInputDate(), toInputDate()] },
+  { key: "7d", label: "7 hari", range: () => [daysAgo(6), toInputDate()] },
+  { key: "month", label: "Bulan ini", range: () => [monthStart(), toInputDate()] },
+  { key: "all", label: "Semua", range: () => ["", ""] },
+];
+
+function rangeLabel(from, to) {
+  const today = toInputDate();
+  if (!from && !to) return "Semua tanggal";
+  if (from === to) return from === today ? "Hari ini" : formatTanggal(parseDate(from));
+  if (!to) return `Sejak ${formatTanggal(parseDate(from))}`;
+  if (!from) return `Sampai ${formatTanggal(parseDate(to))}`;
+  return `${formatTanggal(parseDate(from))} – ${formatTanggal(parseDate(to))}`;
+}
+
+// Klik di mana saja pada kotak tanggal langsung membuka kalender (bukan hanya ikonnya)
+const openPicker = (e) => { try { e.currentTarget.showPicker?.(); } catch { /* browser lama: tetap bisa diketik */ } };
+
+function DateField(props) {
+  return <Input type="date" onClick={openPicker} inputClassName="cursor-pointer" {...props} />;
+}
 
 function Stat({ title, value, sub }) {
   return (
@@ -42,8 +70,13 @@ function RiwayatTransaksiContent() {
   const [method, setMethod] = useState("");
   const [status, setStatus] = useState("");
   const [categoryId, setCategoryId] = useState("");
-  const [date, setDate] = useState(toInputDate());
+  const [cashierId, setCashierId] = useState("");
+  const [cashiers, setCashiers] = useState([]);
+  // Dibuka dari Daftar Pelanggan (cari nama) -> semua tanggal, supaya transaksi lama ikut tampil
+  const [dateFrom, setDateFrom] = useState(location.state?.search ? "" : toInputDate());
+  const [dateTo, setDateTo] = useState(location.state?.search ? "" : toInputDate());
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(PAGE_SIZES[0]);
   const [selectedId, setSelectedId] = useState(location.state?.selectedId ?? null);
   const [payOpen, setPayOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -62,26 +95,46 @@ function RiwayatTransaksiContent() {
     () => [{ value: "", label: "Semua jenis barang" }, ...categories.map((c) => ({ value: String(c.id), label: c.name }))],
     [categories]
   );
+  const cashierOptions = useMemo(
+    () => [{ value: "", label: "Semua kasir" }, ...cashiers.map((u) => ({ value: String(u.id), label: u.is_active === false ? `${u.name} (nonaktif)` : u.name }))],
+    [cashiers]
+  );
+
+  useEffect(() => {
+    api("/api/employees").then((r) => setCashiers(r.data ?? [])).catch(() => {});
+  }, []);
+
+  const activePreset = DATE_PRESETS.find((p) => { const [f, t] = p.range(); return f === dateFrom && t === dateTo; })?.key;
+  const singleDay = dateFrom !== "" && dateFrom === dateTo;
+  const periodText = rangeLabel(dateFrom, dateTo).replace(/^Hari ini$/, "hari ini").replace(/^Semua tanggal$/, "semua tanggal");
+  const setRange = (from, to) => { setDateFrom(from); setDateTo(to); setPage(1); };
+  // Tanggal awal tidak boleh melewati tanggal akhir (dan sebaliknya): ujung lainnya ikut digeser
+  const changeFrom = (v) => setRange(v, v && dateTo && v > dateTo ? v : dateTo);
+  const changeTo = (v) => setRange(v && dateFrom && v < dateFrom ? v : dateFrom, v);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q), 300);
     return () => clearTimeout(t);
   }, [q]);
 
-  // Kartu statistik selalu untuk hari ini (sama seperti sebelumnya)
+  // Kartu statistik mengikuti rentang tanggal & filter daftar (kecuali status)
   useEffect(() => {
-    fetchSalesSummary().then(setStats).catch(() => {});
-  }, [version]);
+    let active = true;
+    fetchSalesSummary({ dateFrom, dateTo, method, q: debouncedQ, categoryId, cashierId })
+      .then((s) => { if (active) setStats(s); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [dateFrom, dateTo, method, debouncedQ, categoryId, cashierId, version]);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
-    fetchSales({ date, method, status, q: debouncedQ, categoryId, page, perPage: PAGE_SIZE })
+    fetchSales({ dateFrom, dateTo, method, status, q: debouncedQ, categoryId, cashierId, page, perPage: pageSize })
       .then((res) => { if (active) { setRows(res.rows); setMeta(res.meta); setError(""); } })
       .catch((e) => { if (active) { setRows([]); setError(e.message); } })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [date, method, status, debouncedQ, categoryId, page, version]);
+  }, [dateFrom, dateTo, method, status, debouncedQ, categoryId, cashierId, page, pageSize, version]);
 
   // Detail (item, pembayaran, riwayat perubahan) diambil saat baris dipilih
   const selectedKey = (Number.isInteger(selectedId) ? selectedId : null) ?? rows[0]?.id ?? null;
@@ -129,15 +182,28 @@ function RiwayatTransaksiContent() {
           <h1 className="text-2xl font-bold tracking-tight">Riwayat Transaksi</h1>
           <p className="mt-1 text-xs text-neutral-500">Setiap transaksi tercatat, setiap perubahan terlacak.</p>
         </div>
-        <div className="flex items-end gap-2">
-          <div className="w-44"><Input aria-label="Filter tanggal" type="date" value={date} onChange={(e) => reset(setDate)(e.target.value)} /></div>
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            <div className="w-40"><DateField aria-label="Dari tanggal" value={dateFrom} max={toInputDate()} onChange={(e) => changeFrom(e.target.value)} /></div>
+            <span className="text-xs text-neutral-500">s/d</span>
+            <div className="w-40"><DateField aria-label="Sampai tanggal" value={dateTo} max={toInputDate()} onChange={(e) => changeTo(e.target.value)} /></div>
+          </div>
+          <div className="flex gap-1" role="group" aria-label="Pilihan cepat rentang tanggal">
+            {DATE_PRESETS.map((p) => (
+              <button key={p.key} type="button" aria-pressed={activePreset === p.key} onClick={() => setRange(...p.range())}
+                className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors",
+                  activePreset === p.key ? "border-brand-600 bg-brand-600 text-white" : "border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50")}>
+                {p.label}
+              </button>
+            ))}
+          </div>
         </div>
       </header>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Stat title="Penjualan bersih hari ini" value={formatAngka(stats.net)} sub="Tidak termasuk transaksi dibatalkan" />
-        <Stat title="Transaksi Lunas" value={formatAngka(stats.lunas)} sub={`${stats.lunas_count} Transaksi`} />
-        <Stat title="Transaksi Belum Lunas" value={formatAngka(stats.unpaid)} sub={`${stats.unpaid_count} Transaksi`} />
+        <Stat title={`Penjualan bersih · ${periodText}`} value={formatAngka(stats.net)} sub="Tidak termasuk transaksi dibatalkan" />
+        <Stat title={`Transaksi Lunas · ${periodText}`} value={formatAngka(stats.lunas)} sub={`${stats.lunas_count} Transaksi`} />
+        <Stat title={`Transaksi Belum Lunas · ${periodText}`} value={formatAngka(stats.unpaid)} sub={`${stats.unpaid_count} Transaksi (sisa tagihan)`} />
       </div>
       {(actionError || error) && <p role="alert" className="mt-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-xs text-red-700">{actionError || error}</p>}
 
@@ -145,7 +211,8 @@ function RiwayatTransaksiContent() {
         <Card className="p-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-base font-bold">Daftar transaksi</h2>
-            <span className="text-xs font-semibold text-brand-600">{date === toInputDate() ? "Hari ini" : date ? formatTanggal(new Date(date + "T00:00")) : "Semua tanggal"}</span>
+            <span className="text-xs font-semibold text-brand-600">{rangeLabel(dateFrom, dateTo)}</span>
+
           </div>
           <div className="mb-4 flex flex-wrap gap-2">
             <div className="relative min-w-[200px] flex-1">
@@ -154,14 +221,15 @@ function RiwayatTransaksiContent() {
                 className="h-11 w-full rounded-lg border border-neutral-200 pl-10 pr-3 text-sm placeholder:text-neutral-400 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15" />
             </div>
             <div className="w-44"><Select aria-label="Filter jenis barang" options={categoryOptions} value={categoryId} onChange={(e) => reset(setCategoryId)(e.target.value)} /></div>
+            <div className="w-40"><Select aria-label="Filter kasir" options={cashierOptions} value={cashierId} onChange={(e) => reset(setCashierId)(e.target.value)} /></div>
             <div className="w-40"><Select aria-label="Filter metode" options={METHOD_OPTIONS} value={method} onChange={(e) => reset(setMethod)(e.target.value)} /></div>
             <div className="w-40"><Select aria-label="Filter status" options={STATUS_OPTIONS} value={status} onChange={(e) => reset(setStatus)(e.target.value)} /></div>
           </div>
 
           <div className="overflow-x-auto rounded-lg border border-neutral-100">
-            <table className="w-full min-w-[620px] text-left text-sm">
+            <table className="w-full min-w-[720px] text-left text-sm">
               <thead className="bg-neutral-100 text-[11px] uppercase text-neutral-500">
-                <tr>{["Transaksi / Jam", "Metode", "Total", "Pembayaran", "Pelanggan"].map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr>
+                <tr>{[singleDay ? "Transaksi / Jam" : "Transaksi / Waktu", "Metode", "Total", "Pembayaran", "Pelanggan", "Kasir"].map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr>
               </thead>
               <tbody className="divide-y divide-neutral-100">
                 {rows.map((t) => {
@@ -171,7 +239,7 @@ function RiwayatTransaksiContent() {
                     <tr key={t.id} onClick={() => setSelectedId(t.id)} className={cn("cursor-pointer hover:bg-neutral-50", active && "bg-brand-50 hover:bg-brand-50")}>
                       <td className="px-4 py-3">
                         <p className={cn("font-mono text-xs font-bold", st === "Belum Lunas" ? "text-red-600" : "text-neutral-900")}>#{t.no}</p>
-                        <p className="text-[11px] text-neutral-500">{formatJam(t.date)} · {t.units} item</p>
+                        <p className="text-[11px] text-neutral-500">{singleDay ? formatJam(t.date) : formatTglJam(t.date)} · {t.units} item</p>
                       </td>
                       <td className="px-4 py-3 text-xs">{t.method}</td>
                       <td className={cn("px-4 py-3 font-mono text-xs", st === "Belum Lunas" && "text-red-600")}>
@@ -179,14 +247,24 @@ function RiwayatTransaksiContent() {
                       </td>
                       <td className="px-4 py-3"><Badge variant={STATUS_VARIANT[st]}>{st}</Badge></td>
                       <td className="px-4 py-3 text-xs">{t.customer.name}</td>
+                      <td className="px-4 py-3 text-xs text-neutral-600">{t.cashier || "-"}</td>
                     </tr>
                   );
                 })}
-                {rows.length === 0 && <tr><td colSpan={5} className="py-10 text-center text-sm text-neutral-500">{loading ? "Memuat transaksi..." : "Tidak ada transaksi yang cocok."}</td></tr>}
+                {rows.length === 0 && <tr><td colSpan={6}className="py-10 text-center text-sm text-neutral-500">{loading ? "Memuat transaksi..." : "Tidak ada transaksi yang cocok."}</td></tr>}
               </tbody>
             </table>
           </div>
-          <Pagination className="mt-4" page={page} pageCount={pageCount} total={meta.total} pageSize={PAGE_SIZE} onChange={setPage} itemLabel="transaksi" />
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <Pagination className="flex-1" page={page} pageCount={pageCount} total={meta.total} pageSize={pageSize} onChange={setPage} itemLabel="transaksi" />
+            <label className="flex items-center gap-2 text-[11px] text-neutral-500">
+              Per halaman
+              <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+                className="h-7 rounded-md border border-neutral-200 bg-white px-1.5 text-xs text-neutral-900 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15">
+                {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </label>
+          </div>
         </Card>
 
         <Card className="p-5">

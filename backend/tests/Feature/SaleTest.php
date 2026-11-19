@@ -128,6 +128,38 @@ class SaleTest extends TestCase
         $this->assertNotContains($other['id'], $ids('status=Belum Lunas'));
     }
 
+    public function test_list_filters_by_date_range_and_cashier(): void
+    {
+        $tx = $this->checkout([['product_id' => $this->beras, 'qty' => 1]], 10000);
+        $today = now('Asia/Jakarta')->toDateString();
+        $yesterday = now('Asia/Jakarta')->subDay()->toDateString();
+        $lastWeek = now('Asia/Jakarta')->subDays(7)->toDateString();
+
+        $get = fn (string $query) => $this->actingAs($this->kasir)->getJson('/api/sales?per_page=100&'.$query);
+        $ids = fn (string $query) => collect($get($query)->assertOk()->json('data'))->pluck('id')->all();
+
+        // Rentang tanggal (salah satu ujung boleh kosong)
+        $this->assertContains($tx['id'], $ids("date_from={$lastWeek}&date_to={$today}"));
+        $this->assertNotContains($tx['id'], $ids("date_from={$lastWeek}&date_to={$yesterday}"));
+        $this->assertContains($tx['id'], $ids("date_from={$today}"));
+        $this->assertNotContains($tx['id'], $ids("date_to={$yesterday}"));
+        $get("date_from={$today}&date_to={$yesterday}")->assertUnprocessable()->assertJsonValidationErrors('date_to');
+
+        // Kartu ringkasan ikut rentang tanggal & kasir
+        $sum = fn (string $query) => $this->actingAs($this->kasir)->getJson('/api/sales/summary?'.$query)->assertOk()->json('data');
+        $week = $sum("date_from={$lastWeek}&date_to={$today}");
+        $this->assertGreaterThanOrEqual($sum("date_from={$today}&date_to={$today}")['net'], $week['net']);
+        $this->assertSame(0, $sum("date_from={$lastWeek}&date_to={$lastWeek}&cashier_id={$this->kasir->id}&q={$tx['no']}")['net']);
+        $this->assertSame(10000, $sum("date_from={$lastWeek}&date_to={$today}&q={$tx['no']}")['net']);
+        $this->assertSame(10000, $sum("all=1&q={$tx['no']}")['net']);
+        $this->assertSame(0, $sum('cashier_id='.($this->kasir->id + 100000))['net']);
+
+        // Kasir yang melayani, ikut tampil di tiap baris
+        $row = collect($get("cashier_id={$this->kasir->id}")->assertOk()->json('data'))->firstWhere('id', $tx['id']);
+        $this->assertSame($this->kasir->name, $row['cashier']);
+        $this->assertNotContains($tx['id'], $ids('cashier_id='.($this->kasir->id + 100000)));
+    }
+
     public function test_edit_items_adjusts_stock_and_logs_history(): void
     {
         $tx = $this->checkout([['product_id' => $this->beras, 'qty' => 5]], 0, $this->customerId);

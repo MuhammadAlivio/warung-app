@@ -116,6 +116,7 @@ class Sale extends Model
             'paid' => $this->paid_amount,
             'remaining' => $this->remaining(),
             'units' => (int) ($this->units ?? $this->items->sum('qty')),
+            'cashier' => $this->user?->name,
         ];
     }
 

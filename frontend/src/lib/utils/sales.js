@@ -35,13 +35,21 @@ export const saleFromApi = (s) => ({
 const query = (params) =>
   new URLSearchParams(Object.entries(params).filter(([, v]) => v !== "" && v != null)).toString();
 
-/** filters: { date, method, status, q, categoryId, page, perPage } */
-export async function fetchSales({ date, method, status, q, categoryId, page = 1, perPage = 6 }) {
-  const res = await api(`/api/sales?${query({ date, method, status, q: q?.trim(), category_id: categoryId, page, per_page: perPage })}`);
+/** filters: { dateFrom, dateTo, method, status, q, categoryId, cashierId, page, perPage }; tanggal kosong = tanpa batas */
+export async function fetchSales({ dateFrom, dateTo, method, status, q, categoryId, cashierId, page = 1, perPage = 10 }) {
+  const res = await api(`/api/sales?${query({
+    date_from: dateFrom, date_to: dateTo, method, status, q: q?.trim(),
+    category_id: categoryId, cashier_id: cashierId, page, per_page: perPage,
+  })}`);
   return { rows: res.data.map(saleFromApi), meta: res.meta };
 }
 
-export const fetchSalesSummary = (date = toInputDate()) => api(`/api/sales/summary?${query({ date })}`).then((r) => r.data);
+/** Ringkasan untuk kartu statistik; filter sama dengan fetchSales (tanpa status). Tanggal kosong keduanya = semua tanggal. */
+export const fetchSalesSummary = ({ dateFrom, dateTo, method, q, categoryId, cashierId } = { dateFrom: toInputDate(), dateTo: toInputDate() }) =>
+  api(`/api/sales/summary?${query({
+    date_from: dateFrom, date_to: dateTo, all: !dateFrom && !dateTo ? 1 : null,
+    method, q: q?.trim(), category_id: categoryId, cashier_id: cashierId,
+  })}`).then((r) => r.data);
 
 export const fetchSale = (id) => api(`/api/sales/${id}`).then((r) => saleFromApi(r.data));
 

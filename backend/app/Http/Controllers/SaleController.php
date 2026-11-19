@@ -32,33 +32,22 @@ class SaleController extends Controller
     /**
      * Daftar transaksi + filter. `q` mencari nomor transaksi ATAU nama / no. HP pelanggan.
      * `category_id` = transaksi yang berisi minimal satu barang dari jenis/kategori tersebut.
+     * Tanggal: `date` (satu hari) atau rentang `date_from` / `date_to` (boleh salah satu saja), tanggal lokal WIB.
+     * `cashier_id` = kasir yang melayani.
      */
     public function index(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'date' => ['nullable', 'date_format:Y-m-d'],
-            'method' => ['nullable', Rule::in(array_keys(self::METHODS))],
+            ...$this->filterRules(),
             'status' => ['nullable', Rule::in(array_keys(self::STATUSES))],
-            'q' => ['nullable', 'string', 'max:100'],
-            'category_id' => ['nullable', 'integer'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
+        ], $this->filterMessages());
 
-        $q = trim((string) ($data['q'] ?? ''));
-
-        $page = Sale::query()
+        $page = $this->filtered($data)
+            ->with('user:id,name')
             ->withSum('items as units', 'qty')
-            ->when($data['date'] ?? null, fn (Builder $b, $d) => $b->onLocalDate($d))
-            ->when($data['method'] ?? null, fn (Builder $b, $m) => $b->where('payment_method', self::METHODS[$m]))
             ->when($data['status'] ?? null, fn (Builder $b, $s) => $b->where('payment_status', self::STATUSES[$s]))
-            ->when($data['category_id'] ?? null, fn (Builder $b, $c) => $b->whereExists(fn ($e) => $e
-                ->select(DB::raw(1))
-                ->from('sale_items as si')
-                ->join('products as p', 'p.id', '=', 'si.product_id')
-                ->whereColumn('si.sale_id', 'sales.id')
-                ->where('p.category_id', $c)))
-            ->when($q !== '', fn (Builder $b) => $this->applySearch($b, $q))
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->paginate($data['per_page'] ?? 6);
@@ -74,14 +63,23 @@ class SaleController extends Controller
         ]);
     }
 
-    /** Tiga kartu statistik di atas Riwayat Transaksi (default: hari ini, WIB). Transaksi batal tidak dihitung. */
+    /**
+     * Tiga kartu statistik di atas Riwayat Transaksi, mengikuti filter daftar (tanggal/rentang, kasir,
+     * metode, jenis barang, pencarian) kecuali status. Tanpa tanggal sama sekali = hari ini (WIB);
+     * `all=1` = semua tanggal. Transaksi batal tidak dihitung.
+     */
     public function summary(Request $request): JsonResponse
     {
-        $data = $request->validate(['date' => ['nullable', 'date_format:Y-m-d']]);
-        $date = $data['date'] ?? CarbonImmutable::now(Sale::TIMEZONE)->toDateString();
+        $data = $request->validate([
+            ...$this->filterRules(),
+            'all' => ['nullable', 'boolean'],
+        ], $this->filterMessages());
 
-        $row = Sale::query()
-            ->onLocalDate($date)
+        if (empty($data['all']) && empty($data['date']) && empty($data['date_from']) && empty($data['date_to'])) {
+            $data['date'] = CarbonImmutable::now(Sale::TIMEZONE)->toDateString();
+        }
+
+        $row = $this->filtered($data)
             ->where('payment_status', '<>', 'batal')
             ->selectRaw("
                 coalesce(sum(total), 0) as net,
@@ -94,7 +92,9 @@ class SaleController extends Controller
             ->first();
 
         return response()->json(['data' => [
-            'date' => $date,
+            'date' => $data['date'] ?? null,
+            'date_from' => $data['date_from'] ?? null,
+            'date_to' => $data['date_to'] ?? null,
             'net' => (int) $row->net,
             'lunas' => (int) $row->lunas,
             'lunas_count' => (int) $row->lunas_count,
@@ -205,6 +205,45 @@ class SaleController extends Controller
     }
 
     // ── bantuan ─────────────────────────────────────────────────────────────
+
+    /** Filter yang dipakai bersama oleh daftar transaksi dan kartu ringkasan. */
+    private function filterRules(): array
+    {
+        return [
+            'date' => ['nullable', 'date_format:Y-m-d'],
+            'date_from' => ['nullable', 'date_format:Y-m-d'],
+            'date_to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:date_from'],
+            'method' => ['nullable', Rule::in(array_keys(self::METHODS))],
+            'q' => ['nullable', 'string', 'max:100'],
+            'category_id' => ['nullable', 'integer'],
+            'cashier_id' => ['nullable', 'integer'],
+        ];
+    }
+
+    private function filterMessages(): array
+    {
+        return ['date_to.after_or_equal' => 'Tanggal akhir tidak boleh sebelum tanggal awal.'];
+    }
+
+    private function filtered(array $data): Builder
+    {
+        $q = trim((string) ($data['q'] ?? ''));
+        $localDate = Sale::localDateSql('sales.created_at');
+
+        return Sale::query()
+            ->when($data['date'] ?? null, fn (Builder $b, $d) => $b->onLocalDate($d))
+            ->when($data['date_from'] ?? null, fn (Builder $b, $d) => $b->whereRaw("{$localDate} >= ?", [$d]))
+            ->when($data['date_to'] ?? null, fn (Builder $b, $d) => $b->whereRaw("{$localDate} <= ?", [$d]))
+            ->when($data['cashier_id'] ?? null, fn (Builder $b, $c) => $b->where('user_id', $c))
+            ->when($data['method'] ?? null, fn (Builder $b, $m) => $b->where('payment_method', self::METHODS[$m]))
+            ->when($data['category_id'] ?? null, fn (Builder $b, $c) => $b->whereExists(fn ($e) => $e
+                ->select(DB::raw(1))
+                ->from('sale_items as si')
+                ->join('products as p', 'p.id', '=', 'si.product_id')
+                ->whereColumn('si.sale_id', 'sales.id')
+                ->where('p.category_id', $c)))
+            ->when($q !== '', fn (Builder $b) => $this->applySearch($b, $q));
+    }
 
     /** Nomor transaksi, nama pelanggan (snapshot atau data terbaru), atau no. HP (angka saja, min. 3 digit). */
     private function applySearch(Builder $query, string $search): void
