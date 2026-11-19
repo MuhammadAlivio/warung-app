@@ -289,7 +289,7 @@ function CatatModal({ open, onClose, onSave, entry = null, onDelete, types, onTy
       <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-neutral-100 px-5 py-4">
           <div>
-            <h2 className="text-sm font-bold text-neutral-900">{entry ? "Ubah catatan kas" : "Catat masuk / keluar"}</h2>
+            <h2 className="text-sm font-bold text-neutral-900">{entry ? "Ubah catatan kas" : "Catat pengeluaran"}</h2>
             <p className="text-[11px] text-neutral-400">
               {entry ? `Dicatat oleh ${entry.created_by ?? "—"}.` : "Catat transaksi kas di luar penjualan dan pembelian."}
             </p>
@@ -305,36 +305,19 @@ function CatatModal({ open, onClose, onSave, entry = null, onDelete, types, onTy
 
         <form onSubmit={handleSubmit}>
           <div className="space-y-4 px-5 py-4">
-            {/* Transaksi toggle */}
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold text-neutral-900">Transaksi</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => { setJenis("keluar"); chooseCategory(""); setNewType(null); }}
-                  className={cn(
-                    "flex h-10 items-center justify-center gap-1.5 rounded-lg border text-xs font-semibold transition-colors",
-                    jenis === "keluar"
-                      ? "border-red-500 bg-red-50 text-red-700"
-                      : "border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50"
-                  )}
-                >
-                  ↑ Uang keluar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setJenis("masuk"); chooseCategory(""); setNewType(null); }}
-                  className={cn(
-                    "flex h-10 items-center justify-center gap-1.5 rounded-lg border text-xs font-semibold transition-colors",
-                    jenis === "masuk"
-                      ? "border-green-500 bg-green-50 text-green-700"
-                      : "border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50"
-                  )}
-                >
-                  ↓ Uang masuk
-                </button>
-              </div>
-            </div>
+            {/* Uang masuk tidak dicatat manual: penjualan & pelunasan otomatis dari Kasir.
+                Catatan uang masuk lama tetap bisa diperbaiki atau dihapus. */}
+            {jenis === "masuk" ? (
+              <p className="flex items-start gap-2 rounded-lg bg-green-50 px-3 py-2.5 text-[11px] text-green-800">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                Catatan uang masuk lama. Uang masuk sekarang tidak dicatat manual, tapi catatan ini masih bisa diperbaiki atau dihapus.
+              </p>
+            ) : (
+              <p className="flex items-start gap-2 rounded-lg bg-neutral-50 px-3 py-2.5 text-[11px] text-neutral-600">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                Hanya untuk uang keluar. Uang masuk dari penjualan & pelunasan sudah tercatat otomatis dari Kasir.
+              </p>
+            )}
 
             {/* Jenis */}
             <div>
@@ -346,7 +329,7 @@ function CatatModal({ open, onClose, onSave, entry = null, onDelete, types, onTy
                 value={category}
                 options={categoryOptions}
                 onChange={chooseCategory}
-                onAdd={handleAddType}
+                onAdd={jenis === "keluar" ? handleAddType : undefined /* jenis uang masuk tidak bisa ditambah */}
               />
 
               {/* Jenis baru: wajib memilih cara dihitung di laporan sebelum disimpan */}
@@ -402,7 +385,7 @@ function CatatModal({ open, onClose, onSave, entry = null, onDelete, types, onTy
                   </div>
                 </div>
               )}
-              {!newType && <p className="mt-1 text-[11px] text-neutral-400">Tidak ada di daftar? Ketik namanya lalu pilih "Tambah".</p>}
+              {!newType && jenis === "keluar" && <p className="mt-1 text-[11px] text-neutral-400">Tidak ada di daftar? Ketik namanya lalu pilih "Tambah".</p>}
             </div>
 
             {/* Kategori: hanya untuk Biaya operasional & Pemasukan lain, bisa ditambah admin */}
@@ -1053,7 +1036,7 @@ export default function KeuanganPage() {
           </button>
           <Button size="sm" fullWidth={false} onClick={() => setCatatOpen(true)}>
             <Plus className="h-4 w-4" />
-            Catat masuk / keluar
+            Catat pengeluaran
           </Button>
         </div>
       </div>

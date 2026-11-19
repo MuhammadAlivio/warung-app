@@ -100,12 +100,14 @@ class FinanceTest extends TestCase
             'purchase_id' => $purchaseId, 'paid_at' => '2031-03-05', 'method' => 'transfer_bank', 'amount' => 40000,
         ]);
 
-        foreach ([
-            ['type' => 'keluar', 'category' => 'Biaya operasional', 'subcategory' => 'Gaji', 'amount' => 25000, 'date' => '2031-03-06'],
-            ['type' => 'masuk', 'category' => 'Pemasukan lain', 'subcategory' => 'Lainnya', 'amount' => 7000, 'date' => '2031-03-07'],
-        ] as $entry) {
-            $this->actingAs($this->admin)->postJson('/api/finance/entries', [...$entry, 'method' => 'tunai'])->assertCreated();
-        }
+        $this->actingAs($this->admin)->postJson('/api/finance/entries', [
+            'type' => 'keluar', 'category' => 'Biaya operasional', 'subcategory' => 'Gaji', 'amount' => 25000, 'date' => '2031-03-06', 'method' => 'tunai',
+        ])->assertCreated();
+        // Uang masuk manual tidak bisa dicatat lagi lewat API; catatan lama tetap dihitung
+        DB::table('cash_entries')->insert([
+            'type' => 'masuk', 'category' => 'Pemasukan lain', 'subcategory' => 'Lainnya', 'amount' => 7000, 'entry_date' => '2031-03-07',
+            'method' => 'tunai', 'user_id' => $this->admin->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
         // Catatan lama berjenis "Prive pemilik" (tidak bisa dipilih lagi lewat API) tetap dihitung benar
         DB::table('cash_entries')->insert([
             'type' => 'keluar', 'category' => 'Prive pemilik', 'amount' => 10000, 'entry_date' => '2031-03-06',
@@ -412,8 +414,9 @@ class FinanceTest extends TestCase
         // Jenis tanpa kategori: kategori yang dikirim diabaikan
         $this->actingAs($this->admin)->postJson('/api/finance/entries', [...$base, 'type' => 'keluar', 'category' => 'Pembelian barang', 'subcategory' => 'Gaji'])
             ->assertCreated()->assertJsonPath('data.subcategory', null);
+        // Uang masuk tidak bisa dicatat manual
         $this->actingAs($this->admin)->postJson('/api/finance/entries', [...$base, 'type' => 'masuk', 'category' => 'Prive masuk'])
-            ->assertCreated()->assertJsonPath('data.category', 'Prive masuk');
+            ->assertUnprocessable()->assertJsonValidationErrors('type');
 
         // Catatan lama "Prive pemilik" tetap bisa diubah tanpa mengganti jenisnya
         $this->seedWeek();
@@ -421,6 +424,14 @@ class FinanceTest extends TestCase
             ->firstWhere('category', 'Prive pemilik')['entry_id'];
         $this->actingAs($this->admin)->putJson("/api/finance/entries/{$legacy}", [...$base, 'type' => 'keluar', 'category' => 'Prive pemilik', 'amount' => 12000])
             ->assertOk()->assertJsonPath('data.amount', 12000);
+
+        // Catatan uang masuk lama tetap bisa diperbaiki, tapi catatan keluar tidak bisa diubah jadi masuk
+        $masuk = collect($this->actingAs($this->admin)->getJson('/api/finance/entries?start=2031-03-03&end=2031-03-09')->json('data'))
+            ->first(fn ($r) => $r['category'] === 'Pemasukan lain' && $r['source'] === 'manual')['entry_id'];
+        $this->actingAs($this->admin)->putJson("/api/finance/entries/{$masuk}", [...$base, 'type' => 'masuk', 'category' => 'Pemasukan lain', 'subcategory' => 'Lainnya', 'amount' => 8000])
+            ->assertOk()->assertJsonPath('data.amount', 8000);
+        $this->actingAs($this->admin)->putJson("/api/finance/entries/{$legacy}", [...$base, 'type' => 'masuk', 'category' => 'Pemasukan lain', 'subcategory' => 'Lainnya'])
+            ->assertUnprocessable()->assertJsonValidationErrors('type');
     }
     public function test_types_can_be_listed_and_added_with_effect(): void
     {
@@ -434,7 +445,7 @@ class FinanceTest extends TestCase
         // Validasi: efek harus sesuai arah, nama sistem ditolak
         $this->actingAs($this->admin)->postJson('/api/finance/types', ['direction' => 'keluar', 'name' => 'Sumbangan', 'effect' => 'modal'])
             ->assertUnprocessable()->assertJsonValidationErrors('effect');
-        $this->actingAs($this->admin)->postJson('/api/finance/types', ['direction' => 'masuk', 'name' => ' penjualan ', 'effect' => 'pemasukan'])
+        $this->actingAs($this->admin)->postJson('/api/finance/types', ['direction' => 'keluar', 'name' => ' penjualan ', 'effect' => 'biaya'])
             ->assertUnprocessable()->assertJsonValidationErrors('name');
         $this->actingAs($this->admin)->postJson('/api/finance/types', ['direction' => 'keluar', 'name' => 'Prive Pemilik', 'effect' => 'bukan_biaya'])
             ->assertUnprocessable()->assertJsonValidationErrors('name');
@@ -449,8 +460,9 @@ class FinanceTest extends TestCase
             ->assertOk()->assertJsonPath('data.effect', 'biaya');
         $this->assertSame(1, DB::table('cash_types')->whereRaw("lower(name) = 'sumbangan warga'")->count());
 
-        // Jenis yang sama boleh ada di arah lain
-        $this->actingAs($this->admin)->postJson('/api/finance/types', ['direction' => 'masuk', 'name' => 'Sumbangan warga', 'effect' => 'pemasukan'])->assertCreated();
+        // Jenis uang masuk tidak bisa ditambah (uang masuk tidak dicatat manual)
+        $this->actingAs($this->admin)->postJson('/api/finance/types', ['direction' => 'masuk', 'name' => 'Bunga bank', 'effect' => 'pemasukan'])
+            ->assertUnprocessable()->assertJsonValidationErrors('direction');
     }
 
     public function test_new_types_follow_their_effect_in_report(): void
@@ -458,13 +470,21 @@ class FinanceTest extends TestCase
         $this->seedWeek();
         $before = $this->report('mingguan', '2031-03-05')['summary'];
 
-        foreach ([['keluar', 'Uji biaya baru', 'biaya'], ['keluar', 'Uji cicilan pinjaman', 'bukan_biaya'], ['masuk', 'Uji modal tambahan', 'modal'], ['masuk', 'Uji bunga bank', 'pemasukan']] as [$dir, $name, $effect]) {
+        foreach ([['keluar', 'Uji biaya baru', 'biaya'], ['keluar', 'Uji cicilan pinjaman', 'bukan_biaya']] as [$dir, $name, $effect]) {
             $this->actingAs($this->admin)->postJson('/api/finance/types', ['direction' => $dir, 'name' => $name, 'effect' => $effect])->assertCreated();
         }
-        foreach ([['keluar', 'uji biaya baru', 4000], ['keluar', 'Uji cicilan pinjaman', 6000], ['masuk', 'Uji modal tambahan', 100000], ['masuk', 'Uji bunga bank', 500]] as [$type, $category, $amount]) {
+        foreach ([['keluar', 'uji biaya baru', 4000], ['keluar', 'Uji cicilan pinjaman', 6000]] as [$type, $category, $amount]) {
             $this->actingAs($this->admin)->postJson('/api/finance/entries', [
                 'type' => $type, 'category' => $category, 'amount' => $amount, 'date' => '2031-03-05', 'method' => 'tunai',
             ])->assertCreated();
+        }
+        // Jenis & catatan uang masuk lama (sebelum uang masuk manual dihapus) tetap dihitung sesuai efeknya
+        foreach ([['Uji modal tambahan', 'modal', 100000], ['Uji bunga bank', 'pemasukan', 500]] as [$name, $effect, $amount]) {
+            DB::table('cash_types')->insert(['direction' => 'masuk', 'name' => $name, 'effect' => $effect, 'has_subcategory' => false, 'sort_order' => 500]);
+            DB::table('cash_entries')->insert([
+                'type' => 'masuk', 'category' => $name, 'amount' => $amount, 'entry_date' => '2031-03-05',
+                'method' => 'tunai', 'user_id' => $this->admin->id, 'created_at' => now(), 'updated_at' => now(),
+            ]);
         }
         // Nama jenis disimpan sesuai daftar
         $this->assertDatabaseHas('cash_entries', ['category' => 'Uji biaya baru', 'amount' => 4000]);

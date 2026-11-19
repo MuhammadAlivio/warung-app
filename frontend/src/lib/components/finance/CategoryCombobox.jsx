@@ -30,7 +30,7 @@ export default function CategoryCombobox({ id, value, options, onChange, onAdd, 
   const all = value && !options.includes(value) ? [...options, value] : options;
   const q = norm(query);
   const filtered = q ? all.filter((o) => norm(o).includes(q)) : all;
-  const canAdd = q.length >= 2 && !all.some((o) => norm(o) === q);
+  const canAdd = !!onAdd && q.length >= 2 && !all.some((o) => norm(o) === q);
   const items = [...filtered.map((name) => ({ type: "option", name })), ...(canAdd ? [{ type: "add", name: query.trim().replace(/\s+/g, " ") }] : [])];
 
   // Tutup bila klik di luar
@@ -139,7 +139,7 @@ export default function CategoryCombobox({ id, value, options, onChange, onAdd, 
           className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-neutral-200 bg-white py-1 text-xs shadow-lg"
         >
           {items.length === 0 && (
-            <li className="px-3 py-2 text-neutral-400">Ketik minimal 2 huruf untuk menambah {noun} baru.</li>
+            <li className="px-3 py-2 text-neutral-400">{onAdd ? `Ketik minimal 2 huruf untuk menambah ${noun} baru.` : `Tidak ada ${noun} yang cocok.`}</li>
           )}
           {items.map((item, i) => {
             const selected = item.type === "option" && item.name === value;

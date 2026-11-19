@@ -164,7 +164,8 @@ class FinanceController extends Controller
     {
         $direction = $request->input('direction');
         $data = $request->validate([
-            'direction' => ['required', Rule::in(['masuk', 'keluar'])],
+            // Hanya jenis uang keluar: uang masuk tidak dicatat manual lagi
+            'direction' => ['required', Rule::in(['keluar'])],
             'name' => [
                 'required', 'string', 'min:2', 'max:50',
                 function (string $attribute, mixed $value, \Closure $fail) {
@@ -181,6 +182,7 @@ class FinanceController extends Controller
             'name.max' => 'Nama jenis maksimal 50 karakter.',
             'effect.required' => 'Pilih cara jenis ini dihitung di laporan.',
             'effect.in' => 'Pilih cara jenis ini dihitung di laporan.',
+            'direction.in' => 'Hanya jenis uang keluar yang bisa ditambah.',
         ]);
 
         $name = preg_replace('/\s+/', ' ', trim($data['name']));
@@ -298,8 +300,12 @@ class FinanceController extends Controller
         $found = in_array($type, ['masuk', 'keluar'], true) && filled($category) ? $this->finance->findType($type, $category) : null;
         $needsSub = (bool) $found?->has_subcategory;
 
+        // Uang masuk tidak dicatat manual lagi (penjualan & pelunasan otomatis dari Kasir).
+        // Catatan masuk lama tetap bisa diperbaiki / dihapus, tapi tidak bisa dibuat baru.
+        $types = $existing?->type === 'masuk' ? ['masuk', 'keluar'] : ['keluar'];
+
         $data = $request->validate([
-            'type' => ['required', Rule::in(['masuk', 'keluar'])],
+            'type' => ['required', Rule::in($types)],
             'category' => [
                 'required', 'string', 'max:50',
                 function (string $attribute, mixed $value, \Closure $fail) use ($found, $keepsLegacy) {
@@ -321,6 +327,7 @@ class FinanceController extends Controller
             'method' => ['required', Rule::in(FinanceService::METHODS)],
             'description' => ['nullable', 'string', 'max:300'],
         ], [
+            'type.in' => 'Uang masuk tidak dicatat manual. Penjualan & pelunasan sudah otomatis tercatat dari Kasir.',
             'subcategory.required' => 'Pilih kategori.',
             'amount.min' => 'Jumlah harus lebih dari 0.',
         ]);
