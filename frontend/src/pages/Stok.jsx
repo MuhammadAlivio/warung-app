@@ -9,23 +9,9 @@ import CategoryManagerModal from "../lib/components/stock/CategoryManagerModal";
 import DeleteStockModal from "../lib/components/stock/DeleteStockModal";
 import FilterSelect from "../lib/components/stock/FilterSelect";
 import StatCard from "../lib/components/stock/StatCard";
-import StockFormModal from "../lib/components/stock/StockFormModal";
+import StockFormModal, { toFormProblem } from "../lib/components/stock/StockFormModal";
 import { useStock } from "../lib/stores/StockContext";
 import { getStockStatus } from "../lib/data/stockMockData";
-
-// Nama field dari backend (snake_case) -> nama field form
-const FIELD_MAP = {
-  name: "name", description: "description", category_id: "categoryId", buy_price: "buyPrice",
-  sell_price: "sellPrice", stock: "stock", min_stock: "minStock", image: "image",
-};
-
-/** ApiError -> { form, fields } untuk ditampilkan di StockFormModal. */
-const toFormProblem = (e) => {
-  const fields = Object.entries(e.data?.errors ?? {})
-    .filter(([k]) => FIELD_MAP[k])
-    .map(([k, v]) => ({ field: FIELD_MAP[k], message: v[0] }));
-  return fields.length ? { fields } : { form: e.message };
-};
 
 const STATUS_OPTIONS = [
   { value: "ok", label: "Aman" },

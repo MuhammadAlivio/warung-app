@@ -4,30 +4,31 @@ import { ChevronDown, PackageCheck, Plus, Search, Info } from "lucide-react";
 import AdminShell from "../lib/components/layout/AdminShell";
 import { Button, Card } from "../lib/components/ui";
 import PaymentModal from "../lib/components/purchase/PaymentModal";
-import PeriodFilter, { ALL_PERIOD, defaultPeriod, inPeriod } from "../lib/components/purchase/PeriodFilter";
+import PeriodFilter, { ALL_PERIOD, currentMonth, defaultPeriod, inPeriod } from "../lib/components/purchase/PeriodFilter";
 import { cn } from "../lib/utils/cn";
 import { formatRupiah } from "../lib/utils/format";
 import {
   PILL_CLASS,
+  RECEIPT_STATUS_OPTIONS,
   formatDateLong,
   formatDateShort,
   lastPaymentDate,
+  locationLabel,
   paymentPill,
   purchaseDebt,
   purchasePaid,
   purchaseQty,
   purchaseReceived,
+  purchaseSummary,
   purchaseTotal,
+  qtyText,
   receiptPill,
+  unitOf,
 } from "../lib/utils/purchase";
 import { usePurchase } from "../lib/stores/PurchaseContext";
-import { LOCATIONS, PURCHASE_SUMMARY, SUPPLIERS } from "../lib/data/purchaseMockData";
 
 const TH = "px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500";
 const MONO = "font-mono tabular-nums";
-
-const supplierName = (id) => SUPPLIERS.find((s) => s.id === id)?.name ?? "-";
-const locationLabel = (loc) => LOCATIONS.find((l) => l.value === loc)?.label ?? loc;
 
 function SummaryCard({ label, value, hint }) {
   return (
@@ -41,7 +42,7 @@ function SummaryCard({ label, value, hint }) {
 
 export default function PembelianBarangMasuk() {
   const navigate = useNavigate();
-  const { purchases, addPayment } = usePurchase();
+  const { purchases, addPayment, loading, loaded, error, reload } = usePurchase();
 
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
@@ -51,7 +52,7 @@ export default function PembelianBarangMasuk() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return purchases.filter((p) => {
-      if (q && !p.purchaseNo.toLowerCase().includes(q) && !supplierName(p.supplierId).toLowerCase().includes(q)) {
+      if (q && !p.purchaseNo.toLowerCase().includes(q) && !p.supplierName.toLowerCase().includes(q)) {
         return false;
       }
       if (status && p.status !== status) return false;
@@ -61,7 +62,7 @@ export default function PembelianBarangMasuk() {
   }, [purchases, query, status, period]);
 
   const selected = filtered.find((p) => p.id === selectedId) ?? filtered[0] ?? null;
-  const S = PURCHASE_SUMMARY;
+  const S = useMemo(() => purchaseSummary(purchases, currentMonth()), [purchases]);
 
   return (
     <AdminShell
@@ -80,6 +81,15 @@ export default function PembelianBarangMasuk() {
             Buat pembelian
           </Button>
         </div>
+
+        {error && (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-red-50 px-4 py-2.5 text-xs text-red-700">
+            <p>Gagal memuat data pembelian: {error}</p>
+            <button type="button" onClick={reload} className="font-semibold underline">
+              Coba lagi
+            </button>
+          </div>
+        )}
 
         {/* Ringkasan */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -146,9 +156,11 @@ export default function PembelianBarangMasuk() {
                 className="h-10 appearance-none rounded-lg border border-neutral-200 bg-white pl-3 pr-9 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15"
               >
                 <option value="">Semua status</option>
-                <option value="belum_diterima">Belum diterima</option>
-                <option value="diterima_sebagian">Diterima sebagian</option>
-                <option value="diterima">Diterima semua</option>
+                {RECEIPT_STATUS_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
               </select>
               <ChevronDown
                 className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-500"
@@ -171,11 +183,26 @@ export default function PembelianBarangMasuk() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 ? (
+                {loading && !loaded ? (
+                  <tr>
+                    <td colSpan={7} className="py-14 text-center text-xs text-neutral-500">
+                      Memuat faktur pembelian…
+                    </td>
+                  </tr>
+                ) : filtered.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-14 text-center">
-                      <p className="text-sm font-semibold text-neutral-700">Faktur tidak ditemukan</p>
-                      <p className="mt-1 text-xs text-neutral-500">Coba ubah kata kunci atau filter pencarian.</p>
+                      {purchases.length === 0 ? (
+                        <>
+                          <p className="text-sm font-semibold text-neutral-700">Belum ada pembelian</p>
+                          <p className="mt-1 text-xs text-neutral-500">Klik "Buat pembelian" untuk mencatat faktur pemasok.</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm font-semibold text-neutral-700">Faktur tidak ditemukan</p>
+                          <p className="mt-1 text-xs text-neutral-500">Coba ubah kata kunci atau filter pencarian.</p>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ) : (
@@ -203,7 +230,7 @@ export default function PembelianBarangMasuk() {
                           </button>
                           <p className="mt-0.5 text-[10px] text-neutral-500">{formatDateShort(p.date)}</p>
                         </td>
-                        <td className="px-3 py-3.5 text-neutral-700">{supplierName(p.supplierId)}</td>
+                        <td className="px-3 py-3.5 text-neutral-700">{p.supplierName}</td>
                         <td className={cn(MONO, "px-3 py-3.5 text-neutral-700")}>{formatRupiah(purchaseTotal(p))}</td>
                         <td className="px-3 py-3.5">
                           <span className={PILL_CLASS[receipt.tone]}>{receipt.label}</span>
@@ -239,6 +266,8 @@ function SelectedInvoice({ purchase: p, navigate, addPayment }) {
   const debt = purchaseDebt(p);
   const lastReception = (p.receptions || []).at(-1);
   const allReceived = p.status === "diterima";
+  const unit = unitOf(p.items);
+  const lastPaid = lastPaymentDate(p);
 
   return (
     <div className="grid gap-5 lg:grid-cols-5">
@@ -251,7 +280,7 @@ function SelectedInvoice({ purchase: p, navigate, addPayment }) {
           >
             {p.purchaseNo}
           </Link>
-          <span className="text-xs font-semibold text-brand-700">{supplierName(p.supplierId)}</span>
+          <span className="text-xs font-semibold text-brand-700">{p.supplierName}</span>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className={PILL_CLASS[receipt.tone]}>{receipt.label}</span>
@@ -283,11 +312,11 @@ function SelectedInvoice({ purchase: p, navigate, addPayment }) {
                       </p>
                     </td>
                     <td className={cn(MONO, "px-3 py-3 text-neutral-700")}>{formatRupiah(item.buyPrice)}</td>
-                    <td className="px-3 py-3 text-neutral-700">{item.qty} pcs</td>
+                    <td className="px-3 py-3 text-neutral-700">{qtyText(item.qty, item.unit)}</td>
                     <td className={cn("px-3 py-3", got > 0 ? "font-semibold text-brand-700" : "text-neutral-500")}>
-                      {got} pcs
+                      {qtyText(got, item.unit)}
                     </td>
-                    <td className="px-3 py-3 text-neutral-700">{item.qty - got} pcs</td>
+                    <td className="px-3 py-3 text-neutral-700">{qtyText(item.qty - got, item.unit)}</td>
                   </tr>
                 );
               })}
@@ -300,8 +329,8 @@ function SelectedInvoice({ purchase: p, navigate, addPayment }) {
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
             <span>
               {received === 0
-                ? `Belum ada barang masuk. Seluruh ${qty} pcs masih menunggu penerimaan dan belum menambah stok.`
-                : `Stok bertambah +${received} pcs yang sudah diterima, bukan ${qty} pcs yang dipesan.`}
+                ? `Belum ada barang masuk. Seluruh ${qtyText(qty, unit)} masih menunggu penerimaan dan belum menambah stok.`
+                : `Stok bertambah +${qtyText(received, unit)} yang sudah diterima, bukan ${qtyText(qty, unit)} yang dipesan.`}
             </span>
           </div>
         )}
@@ -313,7 +342,7 @@ function SelectedInvoice({ purchase: p, navigate, addPayment }) {
                 <>
                   <p className="text-xs font-semibold text-neutral-900">
                     Penerimaan #{lastReception.receptionNo} · +
-                    {lastReception.items.reduce((s, i) => s + i.qty, 0)} pcs
+                    {qtyText(lastReception.items.reduce((s, i) => s + i.qty, 0), unitOf(lastReception.items))}
                   </p>
                   <p className="mt-0.5 text-[11px] text-neutral-500">
                     {formatDateShort(lastReception.date).replace(/ \d{4}$/, "")}, {lastReception.time.replace(":", ".")} ·
@@ -321,7 +350,7 @@ function SelectedInvoice({ purchase: p, navigate, addPayment }) {
                   </p>
                 </>
               ) : (
-                <p className="text-xs font-semibold text-neutral-900">Masih menunggu {remaining} pcs</p>
+                <p className="text-xs font-semibold text-neutral-900">Masih menunggu {qtyText(remaining, unit)}</p>
               )}
             </div>
             <Button size="sm" fullWidth={false} onClick={() => navigate(`/pembelian/${p.id}/terima`)}>
@@ -333,7 +362,7 @@ function SelectedInvoice({ purchase: p, navigate, addPayment }) {
 
         {p.estimatedNextDelivery && !allReceived && (
           <p className="mt-3 text-[11px] text-neutral-500">
-            Catatan: sisa {remaining} pcs dikirim pada {formatDateLong(p.estimatedNextDelivery)}.
+            Catatan: sisa {qtyText(remaining, unit)} dikirim pada {formatDateLong(p.estimatedNextDelivery)}.
           </p>
         )}
       </Card>
@@ -347,7 +376,7 @@ function SelectedInvoice({ purchase: p, navigate, addPayment }) {
           </div>
           <div className="flex items-center justify-between">
             <span className="text-neutral-500">
-              Sudah dibayar · {formatDateShort(lastPaymentDate(p)).replace(/ \d{4}$/, "")}
+              Sudah dibayar{lastPaid && ` · ${formatDateShort(lastPaid).replace(/ \d{4}$/, "")}`}
             </span>
             <span className={cn(MONO, "text-neutral-700")}>{formatRupiah(purchasePaid(p))}</span>
           </div>
@@ -380,8 +409,8 @@ function SelectedInvoice({ purchase: p, navigate, addPayment }) {
         open={payOpen}
         purchase={p}
         onClose={() => setPayOpen(false)}
-        onSave={(data) => {
-          addPayment(p.id, data);
+        onSave={async (data) => {
+          await addPayment(p.id, data);
           setPayOpen(false);
         }}
       />

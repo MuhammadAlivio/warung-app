@@ -25,6 +25,7 @@ const toBody = (d) => ({
   name: d.name,
   description: d.description,
   category_id: Number(d.categoryId),
+  unit: d.unit,
   buy_price: d.buyPrice,
   sell_price: d.sellPrice,
   stock: d.stock,
@@ -125,9 +126,9 @@ export function StockProvider({ children }) {
   }, []);
 
   /**
-   * SEMENTARA: ubah stok hanya di layar (tidak ke database), dipakai Kasir & Terima Barang
-   * yang belum tersambung ke API. Hapus setelah modul Kasir & Pembelian memotong/menambah
-   * stok di backend (StockService), lalu cukup panggil reload().
+   * Cerminkan perubahan stok di layar tanpa memuat ulang (tidak menulis ke database).
+   * Dipakai Kasir/Riwayat setelah backend memotong stok lewat StockService. Pembelian
+   * memakai reload() karena stok ditambah backend saat barang diterima.
    * deltas = { [productId]: +n | -n }
    */
   const adjustLocal = useCallback((deltas) => {

@@ -19,6 +19,7 @@ export const productSchema = z.object({
   description: z.string().trim().max(300, "Maksimal 300 karakter"),
   // Nilai <select> berupa id kategori (string); daftar kategori diambil dari API
   categoryId: z.string().min(1, "Pilih kategori"),
+  unit: z.string().trim().min(1, "Satuan wajib diisi").max(30, "Satuan maksimal 30 karakter"),
   buyPrice: wholeNumber("Harga beli"),
   sellPrice: wholeNumber("Harga jual"),
   stock: wholeNumber("Stok"),

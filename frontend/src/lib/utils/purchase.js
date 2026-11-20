@@ -1,14 +1,58 @@
 import { formatRupiah } from "./format";
 
-export const purchaseTotal = (p) => p.items.reduce((sum, i) => sum + i.qty * i.buyPrice, 0);
+/*
+ * Satu sumber label & pilihan untuk modul Pembelian & Barang Masuk.
+ * Ubah teks status cukup di sini; semua halaman (daftar, detail, terima barang, filter) ikut berubah.
+ */
+
+/** Status penerimaan barang (kolom purchases.status). */
+export const RECEIPT_STATUS = {
+  belum_diterima: { label: "Belum Diterima", tone: "gray" },
+  diterima_sebagian: { label: "Diterima Sebagian", tone: "amber" },
+  diterima: { label: "Diterima Lengkap", tone: "green" },
+};
+
+/** Status pembayaran ke pemasok (dihitung backend dari total & pembayaran). */
+export const PAYMENT_STATUS = {
+  belum_bayar: { label: "Belum Dibayar", tone: "red" },
+  sebagian: { label: "Dibayar Sebagian", tone: "amber" },
+  lunas: { label: "Lunas", tone: "green" },
+};
+
+export const RECEIPT_STATUS_OPTIONS = Object.entries(RECEIPT_STATUS).map(([value, s]) => ({ value, label: s.label }));
+
+export const LOCATIONS = [
+  { value: "gudang_utama", label: "Gudang utama" },
+  { value: "toko", label: "Toko" },
+  { value: "gudang_b", label: "Gudang B" },
+];
+
+export const PAYMENT_METHODS = [
+  { value: "transfer_bank", label: "Transfer bank" },
+  { value: "tunai", label: "Tunai" },
+  { value: "cek", label: "Cek / Giro" },
+];
+
+export const locationLabel = (v) => LOCATIONS.find((l) => l.value === v)?.label ?? v;
+export const methodLabel = (v) => PAYMENT_METHODS.find((m) => m.value === v)?.label ?? v;
+
+export const purchaseTotal = (p) => p.total;
+export const purchasePaid = (p) => p.paid;
+export const purchaseDebt = (p) => p.debt;
 export const purchaseQty = (p) => p.items.reduce((sum, i) => sum + i.qty, 0);
 export const purchaseReceived = (p) => p.items.reduce((sum, i) => sum + (i.qtyReceived || 0), 0);
-/** Total terbayar: pembayaran awal + cicilan yang dicatat belakangan. */
-export const purchasePaid = (p) =>
-  (p.initialPayment || 0) + (p.payments || []).reduce((sum, x) => sum + x.amount, 0);
-export const purchaseDebt = (p) => Math.max(0, purchaseTotal(p) - purchasePaid(p));
-/** Tanggal pembayaran terakhir (cicilan terakhir, atau pembayaran awal). */
-export const lastPaymentDate = (p) => (p.payments || []).at(-1)?.date || p.initialPaymentDate || p.date;
+/** Tanggal pembayaran terakhir, atau null jika belum ada pembayaran. */
+export const lastPaymentDate = (p) => p.payments.at(-1)?.date ?? null;
+
+/**
+ * Satuan untuk jumlah gabungan beberapa barang: satuan barangnya jika semua sama
+ * (mis. "12 karung"), selain itu "unit" (mis. 10 karung + 4 pcs = "14 unit").
+ */
+export const unitOf = (items) => {
+  const units = new Set(items.map((i) => i.unit || "pcs"));
+  return units.size === 1 ? [...units][0] : "unit";
+};
+export const qtyText = (qty, unit) => `${qty} ${unit}`;
 
 /** "16 Okt 2026" */
 export const formatDateShort = (d) =>
@@ -26,22 +70,48 @@ export const PILL_CLASS = {
   amber: `${PILL} bg-amber-50 text-amber-700`,
   green: `${PILL} bg-brand-50 text-brand-700`,
   gray: `${PILL} bg-neutral-100 text-neutral-600`,
+  red: `${PILL} bg-red-50 text-red-700`,
 };
 
-/** Label + warna pill status penerimaan; `short` menambahkan "· 24/48" pada status sebagian. */
+/** Label + warna pill status penerimaan; `short` menambahkan "· 6/14 unit" pada status sebagian. */
 export function receiptPill(p, { short = false } = {}) {
-  if (p.status === "diterima") return { label: "Diterima semua", tone: "green" };
-  if (p.status === "diterima_sebagian") {
-    return {
-      label: short ? `Sebagian · ${purchaseReceived(p)}/${purchaseQty(p)}` : "Diterima sebagian",
-      tone: "amber",
-    };
+  const s = RECEIPT_STATUS[p.status] ?? RECEIPT_STATUS.belum_diterima;
+  if (short && p.status === "diterima_sebagian") {
+    return { label: `Sebagian · ${purchaseReceived(p)}/${qtyText(purchaseQty(p), unitOf(p.items))}`, tone: s.tone };
   }
-  return { label: "Belum diterima", tone: "gray" };
+  return s;
 }
 
 export function paymentPill(p) {
-  return purchaseDebt(p) > 0 ? { label: "Sebagian", tone: "amber" } : { label: "Lunas", tone: "green" };
+  return PAYMENT_STATUS[p.paymentStatus] ?? PAYMENT_STATUS.belum_bayar;
+}
+
+/** Jumlah hari dari hari ini ke tanggal "YYYY-MM-DD" (negatif = sudah lewat). */
+export const daysUntil = (date) => {
+  if (!date) return null;
+  const [y, m, d] = date.split("-").map(Number);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((new Date(y, m - 1, d) - today) / 86400000);
+};
+
+/** Kartu ringkasan halaman Pembelian, dihitung dari data faktur. */
+export function purchaseSummary(purchases, month) {
+  const inMonth = purchases.filter((p) => p.date.slice(0, 7) === month);
+  const withDebt = purchases.filter((p) => p.debt > 0);
+  const dueSoon = withDebt.filter((p) => {
+    const n = daysUntil(p.dueDate);
+    return n !== null && n <= 7;
+  });
+  return {
+    monthTotal: inMonth.reduce((s, p) => s + p.total, 0),
+    monthCount: inMonth.length,
+    unfinishedCount: purchases.filter((p) => p.status !== "diterima").length,
+    debtTotal: withDebt.reduce((s, p) => s + p.debt, 0),
+    debtCount: withDebt.length,
+    dueSoonTotal: dueSoon.reduce((s, p) => s + p.debt, 0),
+    dueSoonCount: dueSoon.length,
+  };
 }
 
 export { formatRupiah };

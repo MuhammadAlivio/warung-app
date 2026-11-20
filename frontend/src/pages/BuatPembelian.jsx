@@ -1,27 +1,42 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Info, Plus, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Info, PackagePlus, Plus, Search, Trash2 } from "lucide-react";
 import AdminShell from "../lib/components/layout/AdminShell";
-import { Button, Card, Input, Select, Textarea } from "../lib/components/ui";
-import { PILL_CLASS, formatDateShort } from "../lib/utils/purchase";
+import { Button, Card, Checkbox, Input, Select, Textarea } from "../lib/components/ui";
+import StockFormModal, { toFormProblem } from "../lib/components/stock/StockFormModal";
+import SupplierFormModal from "../lib/components/purchase/SupplierFormModal";
+import { LOCATIONS, PAYMENT_METHODS, PILL_CLASS, formatDateShort, qtyText, unitOf } from "../lib/utils/purchase";
 import { formatRupiah } from "../lib/utils/format";
 import { cn } from "../lib/utils/cn";
 import { usePurchase } from "../lib/stores/PurchaseContext";
 import { useStock } from "../lib/stores/StockContext";
-import { SUPPLIERS, LOCATIONS, PAYMENT_METHODS } from "../lib/data/purchaseMockData";
 
 const TH = "px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500";
 
-const supplierOptions = SUPPLIERS.map((s) => ({ value: s.id, label: s.name }));
-const today = new Date().toISOString().slice(0, 10);
-const sevenDaysLater = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+/** Tanggal lokal "YYYY-MM-DD", digeser `days` hari dari hari ini. */
+const localDate = (days = 0) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 
 const MONO = "font-mono tabular-nums";
 
+// Nama field backend -> label untuk pesan error di bawah form
+const FIELD_LABEL = {
+  supplier_id: "Pemasok", purchase_no: "Nomor faktur", purchase_date: "Tanggal pembelian", due_date: "Jatuh tempo",
+  location: "Lokasi", items: "Barang", initial_payment: "Pembayaran awal", payment_method: "Metode pembayaran",
+};
+
 export default function BuatPembelian() {
   const navigate = useNavigate();
-  const { addPurchase } = usePurchase();
-  const { products } = useStock();
+  const { addPurchase, suppliers, addSupplier } = usePurchase();
+  const { products, addProduct } = useStock();
+  const supplierOptions = suppliers.map((s) => ({ value: String(s.id), label: s.name }));
+  const today = localDate();
+  const [modal, setModal] = useState(null); // "supplier" | "product" | null
+  const [receiveAll, setReceiveAll] = useState(false);
+  const [error, setError] = useState("");
 
   // Form state
   const [supplierId, setSupplierId] = useState("");
@@ -35,7 +50,7 @@ export default function BuatPembelian() {
   // Payment
   const [initialPayment, setInitialPayment] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState("transfer_bank");
-  const [dueDate, setDueDate] = useState(sevenDaysLater);
+  const [dueDate, setDueDate] = useState(() => localDate(7));
 
   const [saving, setSaving] = useState(false);
 
@@ -71,34 +86,50 @@ export default function BuatPembelian() {
 
   const canSave = supplierId && invoiceNo.trim() && date && dueDate && items.length > 0 && items.every((i) => i.qty > 0 && i.buyPrice > 0);
 
+  const totalQty = items.reduce((s, i) => s + i.qty, 0);
+  const unit = unitOf(items);
+
   const handleSave = async () => {
     if (!canSave) return;
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 400));
-    addPurchase({
-      supplierId,
-      purchaseNo: invoiceNo.trim(),
-      date,
-      dueDate,
-      location,
-      notes,
-      initialPayment: payment,
-      initialPaymentDate: date,
-      paymentMethod,
-      additionalCost,
-      status: "belum_diterima",
-      paymentStatus: payment >= total ? "lunas" : payment > 0 ? "sebagian" : "belum_bayar",
-      items: items.map((i) => ({
-        productId: i.productId,
-        productName: i.productName,
-        sku: i.sku,
-        unit: i.unit,
-        qty: Number(i.qty),
-        buyPrice: Number(i.buyPrice),
-        qtyReceived: 0,
-      })),
-    });
-    navigate("/pembelian");
+    setError("");
+    try {
+      const p = await addPurchase({
+        supplier_id: Number(supplierId),
+        purchase_no: invoiceNo.trim(),
+        purchase_date: date,
+        due_date: dueDate,
+        location,
+        notes,
+        initial_payment: payment,
+        payment_method: paymentMethod,
+        receive_all: receiveAll,
+        items: items.map((i) => ({ product_id: i.productId, qty: Number(i.qty), unit_price: Number(i.buyPrice) })),
+      });
+      navigate(`/pembelian/${p.id}`);
+    } catch (e) {
+      const [field, messages] = Object.entries(e.data?.errors ?? {})[0] ?? [];
+      const label = field && (FIELD_LABEL[field] ?? (field.startsWith("items.") ? "Barang" : null));
+      setError(messages ? `${label ? `${label}: ` : ""}${messages[0]}` : e.message);
+      setSaving(false);
+    }
+  };
+
+  // "Tambah data barang": barang baru langsung tersimpan di Stok Barang (stok 0) lalu masuk ke daftar pembelian
+  const saveNewProduct = async (values) => {
+    try {
+      const p = await addProduct({ ...values, stock: 0 });
+      addItem(p);
+      setModal(null);
+    } catch (e) {
+      return toFormProblem(e);
+    }
+  };
+
+  const saveSupplier = async (values) => {
+    const s = await addSupplier(values);
+    setSupplierId(String(s.id));
+    setModal(null);
   };
 
   return (
@@ -119,7 +150,7 @@ export default function BuatPembelian() {
             </button>
             <h1 className="text-[28px] font-bold leading-tight tracking-tight text-neutral-900">Buat pembelian</h1>
             <p className="mt-1 text-xs text-neutral-500">
-              Catat pembelian ke pemasok. Penerimaan barang dicatat secara terpisah.
+              Catat pembelian ke pemasok. Stok bertambah otomatis saat barang diterima.
             </p>
           </div>
           <span className={PILL_CLASS.gray}>Draf pembelian</span>
@@ -132,13 +163,22 @@ export default function BuatPembelian() {
             <Card className="p-5">
               <h2 className="mb-4 text-sm font-semibold text-neutral-900">Informasi pembelian</h2>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Select
-                  label="Pemasok *"
-                  placeholder="Pilih pemasok"
-                  options={supplierOptions}
-                  value={supplierId}
-                  onChange={(e) => setSupplierId(e.target.value)}
-                />
+                <div>
+                  <Select
+                    label="Pemasok *"
+                    placeholder={suppliers.length ? "Pilih pemasok" : "Belum ada pemasok"}
+                    options={supplierOptions}
+                    value={supplierId}
+                    onChange={(e) => setSupplierId(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setModal("supplier")}
+                    className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-brand-700 hover:underline"
+                  >
+                    <Plus className="h-3 w-3" aria-hidden /> Pemasok baru
+                  </button>
+                </div>
                 <Input
                   label="Nomor faktur pemasok *"
                   placeholder="INV-SJ-1016"
@@ -176,13 +216,14 @@ export default function BuatPembelian() {
                 <h2 className="text-sm font-semibold text-neutral-900">Barang pembelian</h2>
                 {items.length > 0 && (
                   <span className="text-[11px] text-neutral-400">
-                    {items.length} jenis barang · {items.reduce((s, i) => s + i.qty, 0)} pcs
+                    {items.length} jenis barang · {qtyText(totalQty, unit)}
                   </span>
                 )}
               </div>
 
-              {/* Search */}
-              <div className="relative mb-4">
+              {/* Search + barang baru */}
+              <div className="mb-4 flex gap-2">
+              <div className="relative flex-1">
                 <Search
                   className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400"
                   aria-hidden
@@ -190,11 +231,19 @@ export default function BuatPembelian() {
                 <input
                   type="search"
                   aria-label="Cari barang"
-                  placeholder="Cari nama atau kode barang untuk ditambahkan..."
+                  placeholder="Cari nama barang untuk ditambahkan..."
                   value={productSearch}
                   onChange={(e) => setProductSearch(e.target.value)}
                   className="h-10 w-full rounded-lg border border-neutral-200 bg-white pl-9 pr-3 text-xs placeholder:text-neutral-400 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15"
                 />
+                {productSearch && availableProducts.length === 0 && (
+                  <div className="absolute z-10 mt-1 w-full rounded-lg border border-neutral-200 bg-white px-4 py-3 text-xs text-neutral-500 shadow-lg">
+                    Barang tidak ditemukan.{" "}
+                    <button type="button" onClick={() => setModal("product")} className="font-semibold text-brand-700 hover:underline">
+                      Tambah sebagai barang baru
+                    </button>
+                  </div>
+                )}
                 {productSearch && availableProducts.length > 0 && (
                   <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-neutral-200 bg-white shadow-lg">
                     {availableProducts.slice(0, 8).map((p) => (
@@ -205,12 +254,19 @@ export default function BuatPembelian() {
                           className="flex w-full items-center justify-between px-4 py-2.5 text-left text-xs hover:bg-neutral-50"
                         >
                           <span className="font-semibold text-neutral-900">{p.name}</span>
-                          <span className="text-neutral-500">{formatRupiah(p.buyPrice)}</span>
+                          <span className="text-neutral-500">
+                            {formatRupiah(p.buyPrice)} / {p.unit}
+                          </span>
                         </button>
                       </li>
                     ))}
                   </ul>
                 )}
+              </div>
+                <Button variant="outline" size="sm" fullWidth={false} className="h-10 shrink-0" onClick={() => setModal("product")}>
+                  <PackagePlus className="h-4 w-4" aria-hidden />
+                  Barang baru
+                </Button>
               </div>
 
               {/* Items table */}
@@ -244,7 +300,7 @@ export default function BuatPembelian() {
                                   onChange={(e) => updateItem(idx, "qty", Math.max(1, Number(e.target.value)))}
                                   className="w-full min-w-0 bg-transparent text-xs tabular-nums text-neutral-900 focus:outline-none"
                                 />
-                                <span className="text-[11px] text-neutral-500">pcs</span>
+                                <span className="text-[11px] text-neutral-500">{item.unit}</span>
                               </div>
                             </td>
                             <td className="px-4 py-3">
@@ -279,7 +335,7 @@ export default function BuatPembelian() {
                     </table>
                   </div>
                   <p className="mt-2 text-[11px] text-neutral-400">
-                    Harga modal per pcs. Jumlah barang dapat diterima secara bertahap.
+                    Harga modal per satuan barang. Jumlah barang dapat diterima secara bertahap.
                   </p>
                 </>
               ) : (
@@ -355,7 +411,7 @@ export default function BuatPembelian() {
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-neutral-500">
-                    Subtotal · {items.reduce((s, i) => s + i.qty, 0)} pcs
+                    Subtotal · {qtyText(totalQty, unit)}
                   </span>
                   <span className={cn(MONO, "text-neutral-700")}>{formatRupiah(subtotal)}</span>
                 </div>
@@ -385,9 +441,27 @@ export default function BuatPembelian() {
                 </div>
               </div>
 
-              <div className="mt-4 flex items-start gap-2 rounded-lg bg-brand-50 px-3 py-2.5 text-xs text-brand-700">
+              <Checkbox
+                className="mt-4"
+                checked={receiveAll}
+                onChange={(e) => setReceiveAll(e.target.checked)}
+                label={
+                  <>
+                    <span className="font-semibold text-neutral-900">Barang sudah diterima semua</span>
+                    <span className="block text-[11px] text-neutral-500">
+                      Centang jika barang datang bersama faktur. Stok langsung bertambah saat disimpan.
+                    </span>
+                  </>
+                }
+              />
+
+              <div className="mt-3 flex items-start gap-2 rounded-lg bg-brand-50 px-3 py-2.5 text-xs text-brand-700">
                 <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                <span>Belum ada barang diterima. Stok tidak bertambah saat pembelian disimpan.</span>
+                <span>
+                  {receiveAll
+                    ? `Stok bertambah +${qtyText(totalQty, unit)} ke ${LOCATIONS.find((l) => l.value === location)?.label ?? location} saat pembelian disimpan.`
+                    : "Stok belum bertambah saat pembelian disimpan. Stok bertambah otomatis saat barang diterima."}
+                </span>
               </div>
             </Card>
 
@@ -404,18 +478,26 @@ export default function BuatPembelian() {
                 onChange={(e) => setNotes(e.target.value)}
               />
               <p className="mt-3 text-[11px] text-neutral-400 leading-relaxed">
-                Kolom bertanda * wajib diisi. Setelah disimpan, pembelian akan berstatus Belum diterima.
+                Kolom bertanda * wajib diisi. Setelah disimpan, pembelian berstatus Belum Diterima (atau Diterima Lengkap jika barang sudah diterima semua).
               </p>
             </Card>
           </div>
         </div>
+
+        {error && (
+          <p role="alert" className="mt-5 rounded-lg bg-red-50 px-4 py-2.5 text-xs text-red-700">
+            {error}
+          </p>
+        )}
 
         {/* Footer actions */}
         <div className="mt-5 flex items-center justify-between rounded-xl border border-neutral-200 bg-white px-5 py-4 shadow-sm">
           <div>
             <p className="text-sm font-semibold text-neutral-900">Siap mencatat pembelian?</p>
             <p className="text-[11px] text-neutral-400">
-              Penerimaan barang dapat dicatat setelah pembelian tersimpan.
+              {receiveAll
+                ? "Pembelian dan penerimaan barang dicatat sekaligus."
+                : "Penerimaan barang dapat dicatat setelah pembelian tersimpan."}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -435,6 +517,9 @@ export default function BuatPembelian() {
           </div>
         </div>
       </div>
+
+      <SupplierFormModal open={modal === "supplier"} onSave={saveSupplier} onClose={() => setModal(null)} />
+      <StockFormModal open={modal === "product"} lockStock onSave={saveNewProduct} onClose={() => setModal(null)} />
     </AdminShell>
   );
 }

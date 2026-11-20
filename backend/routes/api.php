@@ -7,8 +7,10 @@ use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\FinanceController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\PurchaseController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\StoreProfileController;
+use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\TwoFactorController;
 use App\Http\Middleware\EnsureActive;
 use App\Http\Middleware\LogActivity;
@@ -57,6 +59,14 @@ Route::middleware(['auth:sanctum', EnsureActive::class, LogActivity::class])->gr
     Route::middleware('role:admin')->group(function () {
         Route::apiResource('employees', EmployeeController::class)->only(['store', 'update']);
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
+
+        // Pembelian & Barang Masuk: kasir tidak punya akses sama sekali (keputusan tim 4 Nov 2026)
+        Route::apiResource('suppliers', SupplierController::class)->only(['index', 'store', 'update']);
+        Route::get('/purchases', [PurchaseController::class, 'index']);
+        Route::post('/purchases', [PurchaseController::class, 'store']);
+        Route::get('/purchases/{purchase}', [PurchaseController::class, 'show'])->whereNumber('purchase');
+        Route::post('/purchases/{purchase}/payments', [PurchaseController::class, 'addPayment'])->whereNumber('purchase');
+        Route::post('/purchases/{purchase}/receipts', [PurchaseController::class, 'receive'])->whereNumber('purchase');
 
         // Keuangan: laporan harian/mingguan/bulanan + catatan kas manual
         Route::get('/finance/report', [FinanceController::class, 'report']);

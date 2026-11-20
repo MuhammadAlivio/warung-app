@@ -1,104 +1,141 @@
-import { createContext, useContext, useMemo, useState } from "react";
-import { INITIAL_PURCHASES } from "../data/purchaseMockData";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { api } from "../api";
+import { useAuth } from "./AuthContext";
+import { useStock } from "./StockContext";
 
 const PurchaseCtx = createContext(null);
 
-function generatePurchaseNo(date, seq) {
-  const d = date.replaceAll("-", "");
-  return `INV-${d}-${String(seq).padStart(4, "0")}`;
-}
+/** Bentuk faktur pembelian di frontend (camelCase). */
+const fromApi = (p) => ({
+  id: p.id,
+  purchaseNo: p.purchase_no,
+  supplierId: p.supplier?.id,
+  supplierName: p.supplier?.name ?? "-",
+  date: p.purchase_date,
+  dueDate: p.due_date,
+  location: p.location,
+  status: p.status,
+  paymentStatus: p.payment_status,
+  total: p.total,
+  paid: p.paid,
+  debt: p.debt,
+  notes: p.notes,
+  estimatedNextDelivery: p.estimated_next_delivery,
+  createdBy: p.created_by ?? "-",
+  createdAt: p.created_at,
+  items: p.items.map((i) => ({
+    id: i.id,
+    productId: i.product_id,
+    productName: i.product_name,
+    sku: i.sku,
+    unit: i.unit,
+    qty: i.qty,
+    qtyReceived: i.qty_received,
+    buyPrice: i.unit_price,
+  })),
+  payments: p.payments.map((x) => ({
+    id: x.id, date: x.paid_at, method: x.method, amount: x.amount, note: x.note, userName: x.user_name,
+  })),
+  receptions: p.receipts.map((r) => ({
+    id: r.id,
+    receptionNo: r.receipt_no,
+    date: r.date,
+    time: r.time,
+    receivedBy: r.received_by,
+    deliveryNote: r.delivery_note,
+    notes: r.notes,
+    items: r.items.map((ri) => ({
+      purchaseItemId: ri.purchase_item_id, productId: ri.product_id, productName: ri.product_name, unit: ri.unit, qty: ri.qty,
+    })),
+  })),
+});
 
+/**
+ * Pembelian & Barang Masuk dari database (API /api/purchases, /api/suppliers). Khusus admin:
+ * akun kasir tidak memuat data ini sama sekali. Semua fungsi ubah data async dan melempar ApiError.
+ */
 export function PurchaseProvider({ children }) {
-  const [purchases, setPurchases] = useState(INITIAL_PURCHASES);
-  const [seq, setSeq] = useState(5); // mock data has 3 entries
+  const { user } = useAuth();
+  const { reload: reloadStock } = useStock();
+  const isAdmin = user?.role === "admin";
 
-  const addPurchase = (data) => {
-    const no = generatePurchaseNo(data.date, seq);
-    setSeq((s) => s + 1);
-    const items = (data.items || []).map((i) => ({
-      ...i,
-      id: i.id || crypto.randomUUID(),
-    }));
-    setPurchases((prev) => [
-      {
-        ...data,
-        items,
-        id: crypto.randomUUID(),
-        purchaseNo: data.purchaseNo || no,
-        status: "belum_diterima",
-        paymentStatus: data.initialPayment > 0 ? "sebagian" : "belum_bayar",
-        receptions: [],
-        createdBy: "Dina Anggraini",
-        createdAt: new Date().toISOString().slice(0, 16).replace("T", " "),
+  const [purchases, setPurchases] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  // false sampai pemuatan pertama selesai: halaman detail tidak mengalihkan ke daftar sebelum data ada
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState("");
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [p, s] = await Promise.all([api("/api/purchases"), api("/api/suppliers")]);
+      setPurchases(p.data.map(fromApi));
+      setSuppliers(s.data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+      setLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      setPurchases([]);
+      setSuppliers([]);
+      setLoaded(false);
+      return;
+    }
+    reload();
+  }, [user?.id, isAdmin, reload]);
+
+  const upsert = (p) =>
+    setPurchases((prev) => (prev.some((x) => x.id === p.id) ? prev.map((x) => (x.id === p.id ? p : x)) : [p, ...prev]));
+
+  const addPurchase = useCallback(async (body) => {
+    const p = fromApi((await api("/api/purchases", { method: "POST", body })).data);
+    upsert(p);
+    if (body.receive_all) reloadStock();
+    return p;
+  }, [reloadStock]);
+
+  const addPayment = useCallback(async (id, { amount, date, method, note }) => {
+    const p = fromApi((await api(`/api/purchases/${id}/payments`, {
+      method: "POST", body: { amount, paid_at: date, method, note },
+    })).data);
+    upsert(p);
+    return p;
+  }, []);
+
+  /** items: [{ purchaseItemId, qty }]. Stok barang bertambah di backend, lalu daftar stok dimuat ulang. */
+  const receiveItems = useCallback(async (id, { date, deliveryNote, notes, items }) => {
+    const p = fromApi((await api(`/api/purchases/${id}/receipts`, {
+      method: "POST",
+      body: {
+        received_at: date,
+        delivery_note: deliveryNote,
+        notes,
+        items: items.map((i) => ({ purchase_item_id: i.purchaseItemId, qty: i.qty })),
       },
-      ...prev,
-    ]);
-  };
+    })).data);
+    upsert(p);
+    reloadStock();
+    return p;
+  }, [reloadStock]);
 
-  const updatePurchase = (id, data) =>
-    setPurchases((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, ...data } : p)),
-    );
+  const addSupplier = useCallback(async (data) => {
+    const s = (await api("/api/suppliers", { method: "POST", body: data })).data;
+    setSuppliers((prev) => [...prev, s].sort((a, b) => a.name.localeCompare(b.name)));
+    return s;
+  }, []);
 
-  const deletePurchase = (id) =>
-    setPurchases((prev) => prev.filter((p) => p.id !== id));
-
-  const addPayment = (purchaseId, { amount, date, method }) =>
-    setPurchases((prev) =>
-      prev.map((p) => {
-        if (p.id !== purchaseId) return p;
-        const payments = [...(p.payments || []), { id: crypto.randomUUID(), amount, date, method }];
-        const next = { ...p, payments };
-        const paid = (p.initialPayment || 0) + payments.reduce((s, x) => s + x.amount, 0);
-        const total = p.items.reduce((s, i) => s + i.qty * i.buyPrice, 0);
-        return { ...next, paymentStatus: paid >= total ? "lunas" : "sebagian" };
-      }),
-    );
-
-  const receiveItems = (purchaseId, receptionData) =>
-    setPurchases((prev) =>
-      prev.map((p) => {
-        if (p.id !== purchaseId) return p;
-
-        // Update item quantities
-        const items = p.items.map((item) => {
-          const received = receptionData.itemsReceived?.find((r) => r.productId === item.productId);
-          if (received) {
-            return { ...item, qtyReceived: (item.qtyReceived || 0) + received.qty };
-          }
-          return item;
-        });
-
-        // Determine new status
-        const allReceived = items.every((i) => (i.qtyReceived || 0) >= i.qty);
-        const someReceived = items.some((i) => (i.qtyReceived || 0) > 0);
-        const status = allReceived
-          ? "diterima"
-          : someReceived
-            ? "diterima_sebagian"
-            : "belum_diterima";
-
-        // Add reception record
-        const newReception = {
-          id: crypto.randomUUID(),
-          receptionNo: `BM-${String(Math.floor(Math.random() * 900) + 100)}`,
-          date: receptionData.date,
-          time: new Date().toTimeString().slice(0, 5),
-          receivedBy: receptionData.receivedBy || "Dina",
-          deliveryNote: receptionData.deliveryNote || "",
-          items: receptionData.itemsReceived || [],
-          notes: receptionData.notes || "",
-        };
-
-        const receptions = [...(p.receptions || []), newReception];
-
-        return { ...p, items, status, receptions };
-      }),
-    );
+  const getPurchase = useCallback((id) => purchases.find((p) => String(p.id) === String(id)), [purchases]);
 
   const value = useMemo(
-    () => ({ purchases, addPurchase, updatePurchase, deletePurchase, addPayment, receiveItems }),
-    [purchases],
+    () => ({ purchases, suppliers, loading, loaded, error, reload, getPurchase, addPurchase, addPayment, receiveItems, addSupplier }),
+    [purchases, suppliers, loading, loaded, error, reload, getPurchase, addPurchase, addPayment, receiveItems, addSupplier],
   );
 
   return <PurchaseCtx.Provider value={value}>{children}</PurchaseCtx.Provider>;

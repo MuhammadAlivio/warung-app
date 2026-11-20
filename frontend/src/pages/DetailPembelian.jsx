@@ -12,32 +12,46 @@ import {
   formatDateShort,
   formatTime,
   lastPaymentDate,
+  locationLabel,
+  methodLabel,
   paymentPill,
   purchaseDebt,
   purchasePaid,
   purchaseQty,
   purchaseReceived,
   purchaseTotal,
+  qtyText,
   receiptPill,
+  unitOf,
 } from "../lib/utils/purchase";
 import { usePurchase } from "../lib/stores/PurchaseContext";
-import { LOCATIONS, PAYMENT_METHODS, SUPPLIERS } from "../lib/data/purchaseMockData";
 
 const TH = "px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500";
 const MONO = "font-mono tabular-nums";
 
-const locationLabel = (loc) => LOCATIONS.find((l) => l.value === loc)?.label ?? loc;
-
 export default function DetailPembelian() {
   const { id } = useParams();
+  const { getPurchase, loaded } = usePurchase();
+  const purchase = getPurchase(id);
+
+  if (!loaded) {
+    return (
+      <AdminShell breadcrumb={[{ label: "Ruang kerja" }, { label: "Pembelian & Barang Masuk", href: "/pembelian" }]}>
+        <p className="py-14 text-center text-xs text-neutral-500">Memuat faktur pembelian…</p>
+      </AdminShell>
+    );
+  }
+  if (!purchase) return <Navigate to="/pembelian" replace />;
+  return <DetailContent purchase={purchase} />;
+}
+
+function DetailContent({ purchase }) {
   const navigate = useNavigate();
-  const { purchases, addPayment } = usePurchase();
+  const { addPayment } = usePurchase();
   const [payOpen, setPayOpen] = useState(false);
 
-  const purchase = purchases.find((p) => p.id === id);
-  if (!purchase) return <Navigate to="/pembelian" replace />;
-
-  const supplier = SUPPLIERS.find((s) => s.id === purchase.supplierId);
+  const unit = unitOf(purchase.items);
+  const lastPaid = lastPaymentDate(purchase);
   const receipt = receiptPill(purchase);
   const pay = paymentPill(purchase);
   const total = purchaseTotal(purchase);
@@ -110,7 +124,7 @@ export default function DetailPembelian() {
           <div className="grid grid-cols-2 gap-4 pt-4 text-xs sm:grid-cols-4">
             <div>
               <p className="text-neutral-500">Pemasok</p>
-              <p className="mt-1.5 font-semibold text-neutral-900">{supplier?.name ?? "-"}</p>
+              <p className="mt-1.5 font-semibold text-neutral-900">{purchase.supplierName}</p>
             </div>
             <div>
               <p className="text-neutral-500">Tanggal pembelian</p>
@@ -121,10 +135,8 @@ export default function DetailPembelian() {
               <p className="mt-1.5 font-semibold text-neutral-900">{locationLabel(purchase.location)}</p>
             </div>
             <div>
-              <p className="text-neutral-500">Perkiraan kirim sisa</p>
-              <p className="mt-1.5 font-semibold text-neutral-900">
-                {formatDateLong(purchase.estimatedNextDelivery || purchase.date)}
-              </p>
+              <p className="text-neutral-500">Jatuh tempo</p>
+              <p className="mt-1.5 font-semibold text-neutral-900">{formatDateLong(purchase.dueDate)}</p>
             </div>
           </div>
         </Card>
@@ -133,13 +145,13 @@ export default function DetailPembelian() {
         <div className="grid gap-4 sm:grid-cols-3">
           <Card className="p-5">
             <p className="text-xs text-neutral-500">Jumlah dipesan</p>
-            <p className="mt-2 text-2xl font-bold text-neutral-900">{totalQty} pcs</p>
+            <p className="mt-2 text-2xl font-bold text-neutral-900">{qtyText(totalQty, unit)}</p>
             <p className="mt-1.5 text-[11px] text-neutral-500">{purchase.items.length} jenis barang</p>
           </Card>
           <Card className="p-5">
             <p className="text-xs text-neutral-500">Sudah diterima</p>
             <p className={cn("mt-2 text-2xl font-bold", totalReceived > 0 ? "text-brand-700" : "text-neutral-900")}>
-              {totalReceived} pcs
+              {qtyText(totalReceived, unit)}
             </p>
             <p className="mt-1.5 text-[11px] text-neutral-500">
               {totalReceived === 0 ? "Belum ada stok bertambah" : `${pct}% dari jumlah dipesan`}
@@ -147,7 +159,7 @@ export default function DetailPembelian() {
           </Card>
           <Card className="p-5">
             <p className="text-xs text-neutral-500">Sisa penerimaan</p>
-            <p className="mt-2 text-2xl font-bold text-neutral-900">{totalSisa} pcs</p>
+            <p className="mt-2 text-2xl font-bold text-neutral-900">{qtyText(totalSisa, unit)}</p>
             <p className="mt-1.5 text-[11px] text-neutral-500">
               {totalSisa === 0
                 ? "Seluruh barang diterima"
@@ -189,11 +201,11 @@ export default function DetailPembelian() {
                             </p>
                           </td>
                           <td className={cn(MONO, "px-4 py-3.5 text-neutral-700")}>{formatRupiah(item.buyPrice)}</td>
-                          <td className="px-4 py-3.5 text-neutral-700">{item.qty} pcs</td>
+                          <td className="px-4 py-3.5 text-neutral-700">{qtyText(item.qty, item.unit)}</td>
                           <td className={cn("px-4 py-3.5", got > 0 ? "font-semibold text-brand-700" : "text-neutral-700")}>
-                            {got} pcs
+                            {qtyText(got, item.unit)}
                           </td>
-                          <td className="px-4 py-3.5 text-neutral-700">{item.qty - got} pcs</td>
+                          <td className="px-4 py-3.5 text-neutral-700">{qtyText(item.qty - got, item.unit)}</td>
                         </tr>
                       );
                     })}
@@ -205,7 +217,7 @@ export default function DetailPembelian() {
                 <div className="mt-4">
                   <div className="mb-1.5 flex items-center justify-between text-[11px] font-semibold">
                     <span className="text-brand-700">
-                      {totalReceived} dari {totalQty} pcs diterima
+                      {totalReceived} dari {qtyText(totalQty, unit)} diterima
                     </span>
                     <span className="text-neutral-500">{pct}%</span>
                   </div>
@@ -220,8 +232,8 @@ export default function DetailPembelian() {
                   <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
                   <span>
                     {totalReceived === 0
-                      ? `Belum ada barang masuk. Seluruh ${totalQty} pcs masih menunggu penerimaan dan belum menambah stok.`
-                      : `Stok bertambah +${totalReceived} pcs yang sudah diterima, bukan ${totalQty} pcs yang dipesan.`}
+                      ? `Belum ada barang masuk. Seluruh ${qtyText(totalQty, unit)} masih menunggu penerimaan dan belum menambah stok.`
+                      : `Stok bertambah +${qtyText(totalReceived, unit)} yang sudah diterima, bukan ${qtyText(totalQty, unit)} yang dipesan.`}
                   </span>
                 </div>
               )}
@@ -265,14 +277,15 @@ export default function DetailPembelian() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-2">
                             <p className="text-xs font-semibold text-neutral-900">Penerimaan #{rec.receptionNo}</p>
-                            <span className={PILL_CLASS.green}>+{recTotal} pcs</span>
+                            <span className={PILL_CLASS.green}>+{qtyText(recTotal, unitOf(rec.items))}</span>
                           </div>
                           <p className="mt-0.5 text-[11px] text-neutral-500">
                             {formatDateShort(rec.date)}, {formatTime(rec.time)} · Diterima oleh {rec.receivedBy}
+                            {rec.deliveryNote && ` · Surat jalan ${rec.deliveryNote}`}
                           </p>
                           {rec.items.map((ri) => (
-                            <p key={ri.productId} className="mt-1.5 text-xs text-neutral-900">
-                              {ri.productName} · {ri.qty} pcs
+                            <p key={ri.purchaseItemId} className="mt-1.5 text-xs text-neutral-900">
+                              {ri.productName} · {qtyText(ri.qty, ri.unit)}
                             </p>
                           ))}
                           {rec.notes && <p className="mt-1 text-[11px] text-neutral-500">{rec.notes}</p>}
@@ -284,7 +297,7 @@ export default function DetailPembelian() {
                   {!allReceived && (
                     <div className="flex flex-wrap items-center justify-between gap-3 pt-4">
                       <div>
-                        <p className="text-xs font-semibold text-neutral-900">Masih menunggu {totalSisa} pcs</p>
+                        <p className="text-xs font-semibold text-neutral-900">Masih menunggu {qtyText(totalSisa, unit)}</p>
                         <p className="mt-0.5 text-[11px] text-neutral-500">
                           Catat penerimaan berikutnya saat barang tiba.
                         </p>
@@ -314,7 +327,7 @@ export default function DetailPembelian() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-neutral-500">
-                    Sudah dibayar · {formatDateShort(lastPaymentDate(purchase)).replace(/ \d{4}$/, "")}
+                    Sudah dibayar{lastPaid && ` · ${formatDateShort(lastPaid).replace(/ \d{4}$/, "")}`}
                   </span>
                   <span className={cn(MONO, "text-neutral-700")}>{formatRupiah(purchasePaid(purchase))}</span>
                 </div>
@@ -336,8 +349,7 @@ export default function DetailPembelian() {
                   {purchase.payments.map((x) => (
                     <li key={x.id} className="flex justify-between">
                       <span>
-                        Cicilan · {formatDateShort(x.date).replace(/ \d{4}$/, "")} ·{" "}
-                        {PAYMENT_METHODS.find((m) => m.value === x.method)?.label ?? x.method}
+                        {x.note || "Pembayaran"} · {formatDateShort(x.date).replace(/ \d{4}$/, "")} · {methodLabel(x.method)}
                       </span>
                       <span className={cn(MONO, "text-neutral-700")}>{formatRupiah(x.amount)}</span>
                     </li>
@@ -363,7 +375,7 @@ export default function DetailPembelian() {
               <h3 className="mb-3 text-sm font-semibold text-neutral-900">Catatan pembelian</h3>
               <p className="text-xs leading-relaxed text-neutral-500">
                 {lastReception && purchase.estimatedNextDelivery && isPartial
-                  ? `Catatan: sisa ${totalSisa} pcs dikirim pada ${formatDateLong(purchase.estimatedNextDelivery)}.`
+                  ? `Catatan: sisa ${qtyText(totalSisa, unit)} dikirim pada ${formatDateLong(purchase.estimatedNextDelivery)}.`
                   : purchase.notes || "Tidak ada catatan."}
               </p>
               <p className="mt-3 border-t border-neutral-100 pt-3 text-[11px] text-neutral-500">
@@ -383,8 +395,8 @@ export default function DetailPembelian() {
         open={payOpen}
         purchase={purchase}
         onClose={() => setPayOpen(false)}
-        onSave={(data) => {
-          addPayment(purchase.id, data);
+        onSave={async (data) => {
+          await addPayment(purchase.id, data);
           setPayOpen(false);
         }}
       />

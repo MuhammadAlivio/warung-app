@@ -4,38 +4,53 @@ import Modal, { ModalBody, ModalFooter } from "../ui/Modal";
 import { Button } from "../ui";
 import { cn } from "../../utils/cn";
 import { formatRupiah } from "../../utils/format";
-import { purchaseDebt, purchasePaid, purchaseTotal } from "../../utils/purchase";
-import { PAYMENT_METHODS } from "../../data/purchaseMockData";
+import { PAYMENT_METHODS, purchaseDebt, purchasePaid, purchaseTotal } from "../../utils/purchase";
 
 const FIELD =
   "h-10 w-full rounded-lg border border-neutral-200 bg-white px-3 text-xs text-neutral-900 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15";
 
-/** Catat pembayaran utang pemasok: bisa dilunasi sekaligus atau dicicil. */
+/** Tanggal hari ini (waktu lokal), format "YYYY-MM-DD". */
+const todayLocal = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+/**
+ * Catat pembayaran utang pemasok: bisa dilunasi sekaligus atau dicicil.
+ * onSave(data) async; jika melempar error, pesannya tampil di modal.
+ */
 export default function PaymentModal({ open, purchase, onClose, onSave }) {
   const debt = purchaseDebt(purchase);
   const [amount, setAmount] = useState(0);
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(todayLocal);
   const [method, setMethod] = useState("transfer_bank");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   // Isi ulang tiap modal dibuka: default melunasi seluruh sisa utang.
   useEffect(() => {
     if (open) {
       setAmount(purchaseDebt(purchase));
-      setDate(new Date().toISOString().slice(0, 10));
+      setDate(todayLocal());
       setSaving(false);
+      setError("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const value = Math.max(0, Math.min(debt, Number(amount) || 0));
   const remaining = debt - value;
-  const valid = value > 0;
+  const valid = value > 0 && !!date;
 
   const handleSave = async () => {
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 300));
-    onSave({ amount: value, date, method });
+    setError("");
+    try {
+      await onSave({ amount: value, date, method });
+    } catch (e) {
+      setError(Object.values(e.data?.errors ?? {})[0]?.[0] ?? e.message);
+      setSaving(false);
+    }
   };
 
   return (
@@ -114,6 +129,12 @@ export default function PaymentModal({ open, purchase, onClose, onSave }) {
           </div>
         </div>
 
+        {error && (
+          <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+            {error}
+          </p>
+        )}
+
         <div className="flex items-start gap-2 rounded-lg bg-brand-50 px-3 py-2.5 text-xs text-brand-700">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>
@@ -124,7 +145,7 @@ export default function PaymentModal({ open, purchase, onClose, onSave }) {
         </div>
       </ModalBody>
       <ModalFooter className="justify-end">
-        <Button variant="outline" fullWidth={false} onClick={onClose}>
+        <Button variant="outline" fullWidth={false} onClick={onClose} disabled={saving}>
           Batal
         </Button>
         <Button fullWidth={false} disabled={!valid} loading={saving} onClick={handleSave}>
