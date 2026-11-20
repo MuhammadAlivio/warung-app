@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Search } from "lucide-react";
-import { Badge, Button, Card, Modal, ModalBody, ModalFooter } from "../lib/components/ui";
+import { AlertTriangle } from "lucide-react";
+import { Badge, Button, Card, ErrorDialog, Modal, ModalBody, ModalFooter } from "../lib/components/ui";
 import AdminShell from "../lib/components/layout/AdminShell";
 import EmployeeFormModal from "../lib/components/karyawan/EmployeeFormModal";
 import { api } from "../lib/api";
@@ -11,17 +12,16 @@ function DaftarKaryawanContent() {
   const { user } = useAuth();
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [failure, setFailure] = useState(null); // popup gagal: { title, message }
   const [q, setQ] = useState("");
   const [form, setForm] = useState({ open: false, employee: undefined });
   const isAdmin = user?.role === "admin"; // kasir hanya melihat daftar
   const [toggling, setToggling] = useState(null); // karyawan yang akan diaktifkan/dinonaktifkan
 
   const load = useCallback(() => {
-    setError(null);
     return api("/api/employees")
       .then((res) => setEmployees(res.data))
-      .catch((err) => setError(err.message))
+      .catch((err) => setFailure({ title: "Gagal memuat daftar karyawan", message: err.message, retry: true }))
       .finally(() => setLoading(false));
   }, []);
 
@@ -61,13 +61,17 @@ function DaftarKaryawanContent() {
       });
       await load();
     } catch (err) {
-      window.alert(err.message);
+      setFailure({
+        title: e.pending_approval ? "Pendaftaran gagal disetujui" : "Status akun gagal diubah",
+        message: err.message,
+      });
     }
     setToggling(null);
   };
 
   const columns = isAdmin ? ["Nama", "Email", "Peran", "Status", "Login terakhir", "Aksi"] : ["Nama", "Peran", "Status"];
   const activeCount = employees.filter((e) => e.role === "kasir" && e.is_active).length;
+  const pendingCount = employees.filter((e) => e.pending_approval).length;
 
   return (
     <div>
@@ -87,6 +91,13 @@ function DaftarKaryawanContent() {
         )}
       </header>
 
+      {isAdmin && pendingCount > 0 && (
+        <div role="status" className="mb-5 flex items-center gap-3 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+          {pendingCount} pendaftaran menunggu persetujuan. Klik Setujui pada baris yang bersangkutan agar bisa login.
+        </div>
+      )}
+
       <Card className="p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-bold">
@@ -103,12 +114,6 @@ function DaftarKaryawanContent() {
             />
           </div>
         </div>
-
-        {error && (
-          <p role="alert" className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
-            {error}
-          </p>
-        )}
 
         <div className="overflow-x-auto rounded-lg border border-neutral-100">
           <table className="w-full min-w-[720px] text-left text-sm">
@@ -149,7 +154,11 @@ function DaftarKaryawanContent() {
                       <Badge variant={rowIsAdmin ? "info" : "neutral"}>{rowIsAdmin ? "Administrator" : "Kasir"}</Badge>
                     </td>
                     <td className="px-4 py-3.5">
-                      <Badge variant={e.is_active ? "brand" : "danger"}>{e.is_active ? "Aktif" : "Nonaktif"}</Badge>
+                      {e.pending_approval ? (
+                        <Badge variant="warning">Menunggu persetujuan</Badge>
+                      ) : (
+                        <Badge variant={e.is_active ? "brand" : "danger"}>{e.is_active ? "Aktif" : "Nonaktif"}</Badge>
+                      )}
                     </td>
                     {isAdmin && <td className="px-4 py-3.5 text-xs text-neutral-600">{formatDateTime(e.last_login_at)}</td>}
                     {isAdmin && (
@@ -172,7 +181,7 @@ function DaftarKaryawanContent() {
                             fullWidth={false}
                             onClick={() => setToggling(e)}
                           >
-                            {e.is_active ? "Nonaktifkan" : "Aktifkan"}
+                            {e.is_active ? "Nonaktifkan" : e.pending_approval ? "Setujui" : "Aktifkan"}
                           </Button>
                         )}
                       </div>
@@ -197,11 +206,13 @@ function DaftarKaryawanContent() {
       <Modal
         open={!!toggling}
         onClose={() => setToggling(null)}
-        title={toggling?.is_active ? "Nonaktifkan karyawan?" : "Aktifkan karyawan?"}
+        title={toggling?.is_active ? "Nonaktifkan karyawan?" : toggling?.pending_approval ? "Setujui pendaftaran?" : "Aktifkan karyawan?"}
         description={
           toggling?.is_active
             ? `${toggling?.name} tidak akan bisa login lagi, dan sesi yang sedang aktif langsung berakhir.`
-            : `${toggling?.name} akan bisa login kembali.`
+            : toggling?.pending_approval
+              ? `${toggling?.name} mendaftar sendiri. Setelah disetujui, dia bisa login sebagai kasir.`
+              : `${toggling?.name} akan bisa login kembali.`
         }
       >
         <ModalBody />
@@ -210,10 +221,12 @@ function DaftarKaryawanContent() {
             Batal
           </Button>
           <Button variant={toggling?.is_active ? "danger" : "primary"} fullWidth={false} onClick={confirmToggle}>
-            {toggling?.is_active ? "Nonaktifkan" : "Aktifkan"}
+            {toggling?.is_active ? "Nonaktifkan" : toggling?.pending_approval ? "Setujui" : "Aktifkan"}
           </Button>
         </ModalFooter>
       </Modal>
+
+      <ErrorDialog error={failure} onClose={() => setFailure(null)} onRetry={failure?.retry ? load : undefined} />
     </div>
   );
 }

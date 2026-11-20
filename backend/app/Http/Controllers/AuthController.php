@@ -41,9 +41,13 @@ class AuthController extends Controller
         }
 
         if (! $user->is_active) {
-            $this->guard->fail(null, $data['email'], 'akun_nonaktif', $request);
+            $this->guard->fail(null, $data['email'], $user->pending_approval ? 'menunggu_persetujuan' : 'akun_nonaktif', $request);
 
-            return response()->json(['message' => 'Akun belum aktif atau dinonaktifkan. Hubungi administrator.'], 403);
+            return response()->json([
+                'message' => $user->pending_approval
+                    ? 'Akun Anda masih menunggu persetujuan administrator.'
+                    : 'Akun dinonaktifkan. Hubungi administrator.',
+            ], 403);
         }
 
         if (($data['admin_only'] ?? false) && $user->role !== 'admin') {
@@ -90,6 +94,7 @@ class AuthController extends Controller
             'password' => $data['password'],
             'role' => 'kasir',
             'is_active' => false,
+            'pending_approval' => true,
         ]);
 
         $this->logger->record($request, 'karyawan', 'daftar', "{$user->name} ({$user->email}) mendaftar, menunggu persetujuan admin", $user, $user);

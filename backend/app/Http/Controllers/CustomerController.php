@@ -6,6 +6,7 @@ use App\Models\Customer;
 use App\Services\ActivityLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class CustomerController extends Controller
 {
@@ -38,6 +39,16 @@ class CustomerController extends Controller
 
     public function destroy(Request $request, Customer $customer): JsonResponse
     {
+        // Transaksi belum lunas wajib punya pelanggan (aturan di tabel sales), dan riwayat transaksi
+        // tidak boleh kehilangan pelanggannya. Jadi pelanggan yang sudah punya transaksi tidak dihapus.
+        $sales = DB::table('sales')->where('customer_id', $customer->id)->count();
+
+        if ($sales > 0) {
+            return response()->json([
+                'message' => "Pelanggan {$customer->name} punya {$sales} transaksi, jadi tidak bisa dihapus.",
+            ], 409);
+        }
+
         $customer->delete();
 
         $this->logger->record($request, 'pelanggan', 'hapus', "Menghapus pelanggan {$customer->name}", $customer);

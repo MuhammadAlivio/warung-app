@@ -1,36 +1,10 @@
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { Link } from "react-router-dom";
-import { MailCheck } from "lucide-react";
+import { KeyRound } from "lucide-react";
 import AuthLayout from "../lib/components/layout/AuthLayout";
-import { Button, Card, Input } from "../lib/components/ui";
-import { forgotPasswordSchema } from "../lib/schemas/auth";
+import { Card } from "../lib/components/ui";
 
-// TODO: ganti dengan panggilan API sungguhan
-const fakeSendResetLink = (values) => new Promise((resolve) => setTimeout(() => resolve(values), 800));
-
+// Password tidak direset lewat email. Administrator yang mengaturnya dari Daftar Karyawan.
 export default function ForgotPasswordPage() {
-  const [sentTo, setSentTo] = useState(null);
-  const {
-    register,
-    handleSubmit,
-    setError,
-    formState: { errors, isSubmitting },
-  } = useForm({
-    resolver: zodResolver(forgotPasswordSchema),
-    defaultValues: { email: "" },
-  });
-
-  const onSubmit = async ({ email }) => {
-    try {
-      await fakeSendResetLink({ email });
-      setSentTo(email);
-    } catch {
-      setError("root", { message: "Gagal mengirim tautan. Coba lagi." });
-    }
-  };
-
   return (
     <AuthLayout
       breadcrumb="Lupa password"
@@ -38,56 +12,31 @@ export default function ForgotPasswordPage() {
       description="Satu ruang untuk kasir, stok barang, transaksi, dan pelanggan toko Anda."
     >
       <Card className="w-full max-w-[420px] p-5 shadow-md">
-        {sentTo ? (
-          <div className="py-2 text-center">
-            <span className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-brand-50 text-brand-700">
-              <MailCheck className="h-5 w-5" aria-hidden />
-            </span>
-            <h2 className="text-xl font-bold text-neutral-900">Cek email Anda</h2>
-            <p className="mt-2 text-xs leading-relaxed text-neutral-500">
-              Jika <span className="font-semibold text-neutral-700">{sentTo}</span> terdaftar, tautan untuk mengatur
-              ulang password sudah kami kirim.
-            </p>
-            <Link
-              to="/login"
-              className="mt-5 inline-block text-xs font-semibold text-brand-700 hover:underline"
-            >
-              Kembali ke Login
-            </Link>
-          </div>
-        ) : (
-          <>
-            <h2 className="text-xl font-bold text-neutral-900">Lupa Password</h2>
-            <p className="mb-5 mt-1 text-xs leading-relaxed text-neutral-500">
-              Masukkan email terdaftar Anda. Kami akan mengirimkan tautan untuk mengatur ulang password.
-            </p>
+        <span className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-brand-50 text-brand-700">
+          <KeyRound className="h-5 w-5" aria-hidden />
+        </span>
+        <h2 className="text-xl font-bold text-neutral-900">Lupa password?</h2>
+        <p className="mt-2 text-xs leading-relaxed text-neutral-500">
+          Password diatur ulang oleh administrator toko, bukan lewat email.
+        </p>
 
-            <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
-              <Input
-                label="Email terdaftar"
-                type="email"
-                autoComplete="email"
-                placeholder="nama@email.com"
-                error={errors.email?.message}
-                {...register("email")}
-              />
+        <ol className="mt-4 list-decimal space-y-2 pl-4 text-xs leading-relaxed text-neutral-700">
+          <li>Hubungi administrator toko dan sebutkan email akun Anda.</li>
+          <li>
+            Administrator membuka menu <span className="font-semibold">Daftar Karyawan</span>, klik{" "}
+            <span className="font-semibold">Edit</span> pada akun Anda, lalu mengisi password baru.
+          </li>
+          <li>Masuk dengan password baru. Jika akun sempat terkunci, kuncinya otomatis terbuka.</li>
+        </ol>
 
-              {errors.root && (
-                <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
-                  {errors.root.message}
-                </p>
-              )}
+        <p className="mt-4 rounded-lg bg-neutral-50 px-3 py-2 text-[11px] leading-relaxed text-neutral-500">
+          Anda administrator? Administrator lain yang mengatur ulang password Anda dengan cara yang sama. Kode 2FA Anda
+          tidak berubah, jadi tetap siapkan aplikasi authenticator.
+        </p>
 
-              <Button type="submit" loading={isSubmitting}>
-                Kirim Tautan Reset
-              </Button>
-            </form>
-
-            <Link to="/login" className="mt-5 block text-center text-xs font-semibold text-brand-700 hover:underline">
-              Kembali ke Login
-            </Link>
-          </>
-        )}
+        <Link to="/login" className="mt-5 block text-center text-xs font-semibold text-brand-700 hover:underline">
+          Kembali ke Login
+        </Link>
       </Card>
     </AuthLayout>
   );

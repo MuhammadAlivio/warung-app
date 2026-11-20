@@ -11,8 +11,6 @@ export const loginSchema = z.object({
   remember: z.boolean().optional(),
 });
 
-export const forgotPasswordSchema = z.object({ email });
-
 export const adminLoginSchema = z.object({
   email,
   password: z.string().min(1, "Password wajib diisi"),

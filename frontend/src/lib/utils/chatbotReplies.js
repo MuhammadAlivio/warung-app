@@ -22,6 +22,11 @@ export function getBotReply(text, { transactions, customers }) {
     return `Penjualan bersih hari ini ${formatRupiah(live.reduce((s, x) => s + x.total, 0))} dari ${live.length} transaksi.`;
   }
   if (/(berapa|jumlah|total).*pelanggan|pelanggan.*(berapa|jumlah)/.test(t)) return `Saat ini ada ${customers.length} pelanggan terdaftar.`;
-  return "Maaf, saya belum mengerti. Coba tanya: “Siapa saja pelanggan yang belum membayar lunas?” atau “Berapa penjualan hari ini?”";
+  return "Maaf, saya belum mengerti. Coba tanya: “Stok beras berapa?”, “Barang apa yang mau habis?”, “Siapa saja pelanggan yang belum membayar lunas?” atau “Berapa penjualan hari ini?”";
 }
-export const QUICK_PROMPTS = ["Siapa saja pelanggan yang belum membayar lunas?", "Berapa penjualan hari ini?"];
+export const QUICK_PROMPTS = [
+  "Barang apa yang stoknya mau habis?",
+  "Barang apa saja yang habis?",
+  "Siapa saja pelanggan yang belum membayar lunas?",
+  "Berapa penjualan hari ini?",
+];

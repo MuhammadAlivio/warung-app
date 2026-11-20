@@ -1,22 +1,36 @@
 import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
-import { Badge, Card, Pagination, Select } from "../lib/components/ui";
+import { Badge, Card, ErrorDialog, Pagination, Select } from "../lib/components/ui";
 import AdminShell from "../lib/components/layout/AdminShell";
 import { api } from "../lib/api";
 import { formatDateTime } from "../lib/utils/dateTime";
 
 const PAGE_SIZE = 15;
 
-const MODULE_OPTIONS = [
-  { value: "", label: "Semua modul" },
-  { value: "auth", label: "Login / Logout" },
-  { value: "pelanggan", label: "Pelanggan" },
-  { value: "karyawan", label: "Karyawan" },
-];
+const MODULE_LABEL = {
+  auth: "Login / Logout",
+  pelanggan: "Pelanggan",
+  karyawan: "Karyawan",
+  kasir: "Kasir",
+  transaksi: "Riwayat Transaksi",
+  stok: "Stok Barang",
+  pembelian: "Pembelian",
+  keuangan: "Keuangan",
+  pengaturan: "Pengaturan",
+};
 
-const MODULE_LABEL = { auth: "Login / Logout", pelanggan: "Pelanggan", karyawan: "Karyawan" };
+// Modul yang belum punya nama khusus tetap tampil, dengan huruf awal besar
+const moduleLabel = (m) => MODULE_LABEL[m] ?? m.charAt(0).toUpperCase() + m.slice(1);
 
-const ACTION_VARIANT = { login: "success", logout: "neutral", tambah: "brand", ubah: "warning", hapus: "danger" };
+const ACTION_VARIANT = {
+  login: "success",
+  logout: "neutral",
+  tambah: "brand",
+  ubah: "warning",
+  hapus: "danger",
+  daftar: "info",
+  unduh: "info",
+};
 
 const inputClass =
   "h-11 w-full rounded-lg border border-neutral-200 px-3 text-sm placeholder:text-neutral-400 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15";
@@ -27,8 +41,10 @@ function LogKaryawanContent() {
   const [debouncedQ, setDebouncedQ] = useState("");
   const [page, setPage] = useState(1);
   const [result, setResult] = useState({ data: [], total: 0, last_page: 1 });
+  const [modules, setModules] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [failure, setFailure] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     api("/api/employees")
@@ -48,17 +64,21 @@ function LogKaryawanContent() {
     Object.entries(active).forEach(([k, v]) => v && params.set(k, v));
 
     setLoading(true);
-    setError(null);
     api(`/api/activity-logs?${params}`)
-      .then(setResult)
-      .catch((err) => setError(err.message))
+      .then((res) => {
+        setResult(res);
+        setModules(res.modules ?? []);
+      })
+      .catch((err) => setFailure({ title: "Gagal memuat log", message: err.message }))
       .finally(() => setLoading(false));
-  }, [page, filters.user_id, filters.module, filters.from, filters.to, debouncedQ]);
+  }, [page, filters.user_id, filters.module, filters.from, filters.to, debouncedQ, reloadKey]);
 
   const setFilter = (key) => (e) => {
     setFilters((f) => ({ ...f, [key]: e.target.value }));
     setPage(1);
   };
+
+  const moduleOptions = [{ value: "", label: "Semua modul" }, ...modules.map((m) => ({ value: m, label: moduleLabel(m) }))];
 
   const employeeOptions = [
     { value: "", label: "Semua karyawan" },
@@ -77,7 +97,7 @@ function LogKaryawanContent() {
       <Card className="p-5">
         <div className="mb-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
           <Select aria-label="Filter karyawan" options={employeeOptions} value={filters.user_id} onChange={setFilter("user_id")} />
-          <Select aria-label="Filter modul" options={MODULE_OPTIONS} value={filters.module} onChange={setFilter("module")} />
+          <Select aria-label="Filter modul" options={moduleOptions} value={filters.module} onChange={setFilter("module")} />
           <input type="date" aria-label="Dari tanggal" value={filters.from} onChange={setFilter("from")} className={inputClass} />
           <input type="date" aria-label="Sampai tanggal" value={filters.to} onChange={setFilter("to")} className={inputClass} />
           <div className="relative">
@@ -91,12 +111,6 @@ function LogKaryawanContent() {
             />
           </div>
         </div>
-
-        {error && (
-          <p role="alert" className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
-            {error}
-          </p>
-        )}
 
         <div className="overflow-x-auto rounded-lg border border-neutral-100">
           <table className="w-full min-w-[760px] text-left text-sm">
@@ -132,7 +146,7 @@ function LogKaryawanContent() {
                       <p className="text-sm font-semibold">{l.user_name}</p>
                       <p className="text-[11px] text-neutral-500">{l.user_role === "admin" ? "Administrator" : "Kasir"}</p>
                     </td>
-                    <td className="px-4 py-3.5 text-xs text-neutral-600">{MODULE_LABEL[l.module] ?? l.module}</td>
+                    <td className="px-4 py-3.5 text-xs text-neutral-600">{moduleLabel(l.module)}</td>
                     <td className="px-4 py-3.5">
                       <Badge variant={ACTION_VARIANT[l.action] ?? "neutral"}>{l.action}</Badge>
                     </td>
@@ -153,6 +167,7 @@ function LogKaryawanContent() {
           itemLabel="aktivitas"
         />
       </Card>
+      <ErrorDialog error={failure} onClose={() => setFailure(null)} onRetry={() => setReloadKey((k) => k + 1)} />
     </div>
   );
 }

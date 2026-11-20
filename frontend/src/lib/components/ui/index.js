@@ -8,6 +8,7 @@ export { default as OtpInput } from "./OtpInput";
 export { default as Select } from "./Select";
 export { default as Textarea } from "./Textarea";
 export { default as Modal, ModalBody, ModalFooter } from "./Modal";
+export { default as ErrorDialog } from "./ErrorDialog";
 export { default as Stepper } from "./Stepper";
 export { default as Pagination } from "./Pagination";
 export { default as ImageUpload } from "./ImageUpload";

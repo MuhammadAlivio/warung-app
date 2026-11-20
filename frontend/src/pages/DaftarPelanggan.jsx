@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, ChevronRight, Plus, Search } from "lucide-react";
-import { Badge, Button, Card, Modal, ModalBody, ModalFooter, Pagination, Select } from "../lib/components/ui";
+import { Badge, Button, Card, ErrorDialog, Modal, ModalBody, ModalFooter, Pagination, Select } from "../lib/components/ui";
 import AdminShell from "../lib/components/layout/AdminShell";
 import CustomerFormModal from "../lib/components/pelanggan/CustomerFormModal";
 import { cn } from "../lib/utils/cn";
@@ -74,6 +74,7 @@ function DaftarPelangganContent() {
   const [expandedId, setExpandedId] = useState(null); // satu baris terbuka pada satu waktu
   const [form, setForm] = useState({ open: false, customer: undefined });
   const [toDelete, setToDelete] = useState(null);
+  const [failure, setFailure] = useState(null);
 
   const unpaidCount = useMemo(() => customers.filter((c) => summary(c.id).outstanding > 0).length, [customers, summary]);
   const totalOutstanding = useMemo(() => customers.reduce((s, c) => s + summary(c.id).outstanding, 0), [customers, summary]);
@@ -216,7 +217,7 @@ function DaftarPelangganContent() {
                 await removeCustomer(toDelete.id);
                 setExpandedId((cur) => (cur === toDelete.id ? null : cur));
               } catch (err) {
-                window.alert(err.message);
+                setFailure({ title: "Pelanggan tidak bisa dihapus", message: err.message });
               }
               setToDelete(null);
             }}
@@ -225,6 +226,7 @@ function DaftarPelangganContent() {
           </Button>
         </ModalFooter>
       </Modal>
+      <ErrorDialog error={failure} onClose={() => setFailure(null)} />
     </div>
   );
 }

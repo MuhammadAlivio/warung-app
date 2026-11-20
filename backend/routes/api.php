@@ -3,6 +3,7 @@
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\ChatbotController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\FinanceController;
@@ -32,6 +33,9 @@ Route::middleware(['auth:sanctum', EnsureActive::class, LogActivity::class])->gr
     // Admin & kasir (daftar karyawan: kasir hanya melihat, datanya dibatasi di controller)
     Route::apiResource('customers', CustomerController::class)->except('show');
     Route::get('/employees', [EmployeeController::class, 'index']);
+
+    // Chatbot: menjawab dari data stok (hanya membaca), admin & kasir
+    Route::post('/chatbot', [ChatbotController::class, 'ask'])->middleware('throttle:30,1');
 
     // Stok Barang: admin & kasir aksesnya sama (keputusan tim 4 Nov 2026)
     Route::apiResource('categories', CategoryController::class)->except('show');

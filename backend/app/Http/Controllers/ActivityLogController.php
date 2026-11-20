@@ -43,6 +43,8 @@ class ActivityLogController extends Controller
             'current_page' => $logs->currentPage(),
             'last_page' => $logs->lastPage(),
             'total' => $logs->total(),
+            // Untuk dropdown filter: semua modul yang pernah tercatat, tanpa terpengaruh filter aktif
+            'modules' => ActivityLog::query()->distinct()->orderBy('module')->pluck('module'),
         ]);
     }
 }

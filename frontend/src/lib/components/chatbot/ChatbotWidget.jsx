@@ -3,11 +3,12 @@ import { Maximize2, Minimize2, Send, Sparkles, X } from "lucide-react";
 import { Button } from "../ui";
 import { cn } from "../../utils/cn";
 import { formatJam } from "../../utils/pos";
+import { api } from "../../api";
 import { useTransactions } from "../../stores/TransactionContext";
 import { useCustomers } from "../../stores/CustomerContext";
 import { getBotReply, QUICK_PROMPTS } from "../../utils/chatbotReplies";
 
-const GREETING = { id: 0, from: "bot", text: "Halo! Saya asisten Warung. Tanyakan soal tagihan pelanggan atau penjualan hari ini.", at: new Date() };
+const GREETING = { id: 0, from: "bot", text: "Halo! Saya asisten Warung. Tanyakan stok barang, barang yang mau habis, tagihan pelanggan, atau penjualan hari ini.", at: new Date() };
 
 /** mode: "closed" (hanya FAB) | "popup" (widget ringkas) | "drawer" (panel samping penuh) */
 export default function ChatbotWidget() {
@@ -27,15 +28,24 @@ export default function ChatbotWidget() {
     return () => document.removeEventListener("keydown", h);
   }, [mode]);
 
-  const send = (value) => {
+  const send = async (value) => {
     const msg = value.trim();
     if (!msg || typing) return;
     setMessages((m) => [...m, { id: Date.now(), from: "user", text: msg, at: new Date() }]);
     setText(""); setTyping(true);
-    setTimeout(() => {
-      setMessages((m) => [...m, { id: Date.now() + 1, from: "bot", text: getBotReply(msg, { transactions, customers }), at: new Date() }]);
-      setTyping(false);
-    }, 600);
+
+    // Server: LLM memanggil alat yang membaca database stok. reply null = bukan soal stok, pakai jawaban lokal (tagihan, penjualan).
+    // Beberapa pesan terakhir ikut dikirim supaya pertanyaan lanjutan ("kalau telur?") nyambung
+    const history = messages.filter((m) => m.id !== GREETING.id).slice(-8).map((m) => ({ role: m.from === "user" ? "user" : "assistant", text: m.text }));
+    let reply;
+    try {
+      const res = await api("/api/chatbot", { method: "POST", body: { message: msg, history } });
+      reply = res.reply ?? getBotReply(msg, { transactions, customers });
+    } catch {
+      reply = "Maaf, saya sedang tidak bisa mengambil data toko. Coba lagi sebentar lagi.";
+    }
+    setMessages((m) => [...m, { id: Date.now() + 1, from: "bot", text: reply, at: new Date() }]);
+    setTyping(false);
   };
 
   const drawer = mode === "drawer";

@@ -72,7 +72,9 @@ class EmployeeController extends Controller
             $changes[] = 'peran menjadi '.($data['role'] === 'admin' ? 'administrator' : 'kasir');
         }
         if ($data['is_active'] !== $employee->is_active) {
-            $changes[] = $data['is_active'] ? 'mengaktifkan akun' : 'menonaktifkan akun';
+            $changes[] = $data['is_active']
+                ? ($employee->pending_approval ? 'menyetujui pendaftaran' : 'mengaktifkan akun')
+                : 'menonaktifkan akun';
         }
 
         $employee->fill([
@@ -81,6 +83,11 @@ class EmployeeController extends Controller
             'role' => $data['role'],
             'is_active' => $data['is_active'],
         ]);
+
+        // Pendaftaran selesai diproses begitu admin mengubah statusnya (disetujui atau dinonaktifkan)
+        if ($employee->isDirty('is_active')) {
+            $employee->pending_approval = false;
+        }
 
         // Diturunkan dari admin ke kasir: 2FA dihapus. Kalau nanti dijadikan admin lagi, setup dari awal.
         if ($employee->isDirty('role') && $data['role'] === 'kasir') {
@@ -120,6 +127,7 @@ class EmployeeController extends Controller
             'email' => $u->email,
             'role' => $u->role,
             'is_active' => $u->is_active,
+            'pending_approval' => $u->pending_approval,
             'two_factor' => $u->two_factor_confirmed_at !== null,
             'last_login_at' => $u->last_login_at,
             'created_at' => $u->created_at,
