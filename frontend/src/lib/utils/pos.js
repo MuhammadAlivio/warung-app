@@ -89,11 +89,57 @@ export const terbilang = (n) => {
 export const makeTrxNo = (seq = 42, d = new Date()) =>
   `TRX-${p2(d.getDate())}${p2(d.getMonth() + 1)}${String(d.getFullYear()).slice(2)}-${String(seq).padStart(3, "0")}`;
 
-/** Cetak area `.print-receipt` (struk) atau `.print-invoice` (faktur A4). Tanpa pilihan ukuran kertas. */
-export const printDoc = (type) => {
+/** Ukuran kertas faktur (struk selalu thermal 58mm). Sama dengan Sale::INVOICE_SIZES di backend. */
+export const INVOICE_SIZES = ["A4", "A5"];
+const SIZE_KEY = "warung.invoiceSize";
+
+/** Ukuran faktur terakhir yang dipilih di komputer ini (default A4). */
+export const getInvoiceSize = () => {
+  try {
+    const v = localStorage.getItem(SIZE_KEY);
+    return INVOICE_SIZES.includes(v) ? v : "A4";
+  } catch {
+    return "A4";
+  }
+};
+export const setInvoiceSize = (v) => {
+  try {
+    localStorage.setItem(SIZE_KEY, v);
+  } catch {
+    /* penyimpanan browser tidak tersedia: pilihan hanya berlaku di halaman ini */
+  }
+};
+
+/*
+ * Ukuran kertas dipasang sebagai @page TANPA nama tepat sebelum mencetak. Named page
+ * (`page: receipt` di CSS) diabaikan Chrome untuk elemen position:absolute seperti area
+ * cetak ini, sehingga kertas jatuh ke ukuran bawaan printer (Letter/A4).
+ */
+const PAGE_RULES = {
+  receipt: "@page { size: 58mm auto; margin: 0; }",
+  A4: "@page { size: A4; margin: 12mm; }",
+  A5: "@page { size: A5; margin: 8mm; }",
+};
+
+/**
+ * Cetak area `.print-receipt` (struk 58mm) atau `.print-invoice` (faktur A4/A5).
+ * type "none" tidak mencetak apa pun.
+ */
+export const printDoc = (type, size = "A4") => {
+  if (!type || type === "none") return;
+  const invoiceSize = INVOICE_SIZES.includes(size) ? size : "A4";
   document.body.dataset.print = type;
+  document.body.dataset.printSize = invoiceSize;
+
+  const style = document.createElement("style");
+  style.dataset.printPage = "";
+  style.textContent = PAGE_RULES[type === "invoice" ? invoiceSize : "receipt"];
+  document.head.appendChild(style);
+
   const clear = () => {
     delete document.body.dataset.print;
+    delete document.body.dataset.printSize;
+    style.remove();
     window.removeEventListener("afterprint", clear);
   };
   window.addEventListener("afterprint", clear);

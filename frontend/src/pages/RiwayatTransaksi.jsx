@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { CalendarDays, FileText, Pencil, Printer, Search, Wallet, XCircle } from "lucide-react";
 import { Badge, Button, Card, Input, Pagination, Select } from "../lib/components/ui";
 import { cn } from "../lib/utils/cn";
-import { formatAngka, formatJam, formatRupiah, formatTanggal, formatTglJam, printDoc, toInputDate } from "../lib/utils/pos";
+import { formatAngka, formatJam, formatRupiah, formatTanggal, formatTglJam, getInvoiceSize, printDoc, toInputDate } from "../lib/utils/pos";
 import { api } from "../lib/api";
 import { useTransactions } from "../lib/stores/TransactionContext";
 import { useStockAdjust } from "../lib/hooks/useCatalog";
@@ -278,7 +278,8 @@ function RiwayatTransaksiContent() {
 
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <Button onClick={() => printDoc("receipt")}><Printer className="h-4 w-4" aria-hidden /> Cetak struk</Button>
-                <Button variant="outline" onClick={() => printDoc("invoice")}><FileText className="h-4 w-4" aria-hidden /> Cetak faktur</Button>
+                {/* Ukuran faktur = pilihan terakhir di Kasir pada komputer ini */}
+                <Button variant="outline" onClick={() => printDoc("invoice", getInvoiceSize())}><FileText className="h-4 w-4" aria-hidden /> Cetak faktur {getInvoiceSize()}</Button>
               </div>
 
               {!selected.cancelled && (

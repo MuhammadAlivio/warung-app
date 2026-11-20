@@ -122,8 +122,11 @@ class SaleController extends Controller
             'method' => ['required', Rule::in(array_keys(self::METHODS))],
             'cash' => ['required', 'integer', 'min:0', 'max:'.self::MAX_MONEY],
             'print_doc' => ['nullable', Rule::in(['receipt', 'invoice', 'none'])],
+            // Ukuran kertas faktur (struk selalu thermal 58mm)
+            'print_size' => ['nullable', Rule::in(Sale::INVOICE_SIZES)],
             ...$this->itemRules(),
         ], [
+            'print_size.in' => 'Ukuran faktur harus A4 atau A5',
             'customer_id.exists' => 'Pelanggan tidak ditemukan',
             'method.*' => 'Pilih metode pembayaran',
             'cash.*' => 'Nominal uang diterima tidak valid',

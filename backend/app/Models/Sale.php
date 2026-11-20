@@ -28,6 +28,9 @@ class Sale extends Model
 
     public const GENERAL_CUSTOMER = 'Pelanggan umum';
 
+    /** Ukuran kertas faktur yang bisa dipilih di Kasir (kolom print_size). */
+    public const INVOICE_SIZES = ['A4', 'A5'];
+
     protected function casts(): array
     {
         return [
@@ -138,6 +141,7 @@ class Sale extends Model
             'cash' => $this->cash_received,
             'change' => $this->change_amount,
             'print_doc' => $this->print_doc,
+            'print_size' => $this->print_size ?? 'A4',
             'cancel_reason' => $this->cancel_reason,
             'cancelled_at' => $this->cancelled_at?->toIso8601String(),
             'items' => $this->items->map(fn (SaleItem $i) => [

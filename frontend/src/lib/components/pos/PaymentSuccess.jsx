@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Check, History, Plus, Printer } from "lucide-react";
 import { Badge, Button, Card } from "../ui";
 import { cn } from "../../utils/cn";
-import { formatRupiah, formatTanggal, printDoc } from "../../utils/pos";
+import { INVOICE_SIZES, formatRupiah, formatTanggal, printDoc, setInvoiceSize } from "../../utils/pos";
 import { remainingOf, statusOf, STATUS_VARIANT, unitsOf } from "../../utils/transaction";
 import ReceiptPreview from "./ReceiptPreview";
 import InvoiceDocument, { InvoicePreview } from "./InvoiceDocument";
@@ -18,14 +18,17 @@ const TABS = [
 
 /**
  * Konfirmasi pembayaran. Pratinjau yang tampil pertama mengikuti pilihan dokumen saat checkout (`tx.printDoc`):
- *   "receipt" → <ReceiptPreview /> (struk thermal) · "invoice" → <InvoicePreview /> (faktur A4).
+ *   "receipt"/"none" → <ReceiptPreview /> (struk thermal) · "invoice" → <InvoicePreview /> (faktur A4/A5).
  * Pengguna tetap bisa berpindah dokumen lewat tab; tombol cetak mengikuti tab yang aktif.
  */
 export default function PaymentSuccess({ tx, onNew, onHistory }) {
   const status = statusOf(tx);
   const initial = tx.printDoc === "invoice" ? "invoice" : "receipt";
   const [view, setView] = useState(initial);
+  const [size, setSize] = useState(tx.printSize ?? "A4");
   useEffect(() => setView(initial), [tx.no, initial]);
+  useEffect(() => setSize(tx.printSize ?? "A4"), [tx.no, tx.printSize]);
+  const notPrinted = tx.printDoc === "none";
 
   const active = TABS.find((t) => t.id === view);
   const isInvoice = view === "invoice";
@@ -95,9 +98,24 @@ export default function PaymentSuccess({ tx, onNew, onHistory }) {
                 </button>
               ))}
             </div>
-            <Badge>Siap dicetak</Badge>
+            <Badge>{notPrinted ? "Belum dicetak" : "Siap dicetak"}</Badge>
           </div>
         </div>
+
+        {isInvoice && (
+          <div role="radiogroup" aria-label="Ukuran kertas faktur" className="mt-3 flex items-center gap-2 text-xs">
+            <span className="text-neutral-500">Ukuran faktur</span>
+            {INVOICE_SIZES.map((s) => (
+              <button
+                key={s} type="button" role="radio" aria-checked={size === s}
+                onClick={() => { setSize(s); setInvoiceSize(s); }}
+                className={cn("rounded-md border px-2.5 py-1 font-semibold transition-colors", size === s ? "border-transparent bg-brand-50 text-brand-700" : "border-neutral-200 text-neutral-600 hover:bg-neutral-50")}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-100 p-5">
           {isInvoice ? <InvoicePreview tx={tx} /> : <ReceiptPreview tx={tx} />}
@@ -105,11 +123,14 @@ export default function PaymentSuccess({ tx, onNew, onHistory }) {
 
         <div className="mt-4 flex items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-neutral-900">Dokumen siap dicetak</p>
-            <p className="text-xs text-neutral-500">Periksa printer sebelum mencetak ulang.</p>
+            <p className="text-sm font-semibold text-neutral-900">{notPrinted ? "Transaksi disimpan tanpa cetak" : "Dokumen siap dicetak"}</p>
+            <p className="text-xs text-neutral-500">
+              {notPrinted ? "Cetak sekarang jika pelanggan meminta bukti." : "Periksa printer sebelum mencetak ulang."}
+            </p>
           </div>
-          <Button fullWidth={false} onClick={() => printDoc(isInvoice ? "invoice" : "receipt")}>
-            <Printer className="h-4 w-4" aria-hidden /> Cetak ulang {active.title}
+          <Button fullWidth={false} onClick={() => printDoc(isInvoice ? "invoice" : "receipt", size)}>
+            <Printer className="h-4 w-4" aria-hidden /> {notPrinted ? "Cetak" : "Cetak ulang"} {active.title}
+            {isInvoice && ` ${size}`}
           </Button>
         </div>
       </Card>

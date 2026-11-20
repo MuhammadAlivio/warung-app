@@ -1,13 +1,15 @@
 import { Check, Minus, Plus, User, X } from "lucide-react";
 import { Button, Card } from "../ui";
 import { cn } from "../../utils/cn";
-import { formatRupiah } from "../../utils/pos";
+import { INVOICE_SIZES, formatRupiah } from "../../utils/pos";
 
 const METHODS = ["Tunai", "TF"];
 const QUICK_CASH = [10000, 20000, 50000, 100000];
+// "none": transaksi tetap tersimpan, hanya tidak membuka dialog cetak (bisa dicetak ulang nanti)
 const PRINT_DOCS = [
   { value: "receipt", label: "Cetak struk" },
   { value: "invoice", label: "Cetak faktur" },
+  { value: "none", label: "Tanpa cetak" },
 ];
 
 function Toggle({ active, onClick, children }) {
@@ -24,13 +26,13 @@ function Toggle({ active, onClick, children }) {
 }
 
 /** Pilihan tunggal (radio native → keyboard ↑↓←→ & pembaca layar bekerja). Tampil seperti tombol Toggle. */
-function DocOption({ value, checked, onChange, children }) {
+function DocOption({ name = "print-doc", value, checked, onChange, children }) {
   return (
     <label
-      className={cn("flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors focus-within:ring-4 focus-within:ring-brand-600/20",
+      className={cn("flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-semibold transition-colors focus-within:ring-4 focus-within:ring-brand-600/20",
         checked ? "border-transparent bg-brand-50 text-brand-700" : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50")}
     >
-      <input type="radio" name="print-doc" value={value} checked={checked} onChange={() => onChange(value)} className="sr-only" />
+      <input type="radio" name={name} value={value} checked={checked} onChange={() => onChange(value)} className="sr-only" />
       {checked && <Check className="h-3.5 w-3.5" aria-hidden />}
       {children}
     </label>
@@ -39,7 +41,7 @@ function DocOption({ value, checked, onChange, children }) {
 
 export default function CartPanel({
   trxNo, cart, customer, onPickCustomer, method, setMethod, cash, setCash,
-  selectedPrintDoc, setSelectedPrintDoc,
+  selectedPrintDoc, setSelectedPrintDoc, printSize, setPrintSize,
   change, remaining, error, onPay, onSave,
 }) {
   const empty = cart.items.length === 0;
@@ -117,12 +119,27 @@ export default function CartPanel({
 
       <fieldset className="mt-3">
         <legend className="sr-only">Dokumen yang dicetak</legend>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           {PRINT_DOCS.map((d) => (
             <DocOption key={d.value} value={d.value} checked={selectedPrintDoc === d.value} onChange={setSelectedPrintDoc}>{d.label}</DocOption>
           ))}
         </div>
       </fieldset>
+
+      {selectedPrintDoc === "invoice" && (
+        <fieldset className="mt-2 flex items-center gap-2">
+          <legend className="sr-only">Ukuran kertas faktur</legend>
+          <span aria-hidden className="text-xs text-neutral-500">Ukuran faktur</span>
+          <div className="grid flex-1 grid-cols-2 gap-2">
+            {INVOICE_SIZES.map((s) => (
+              <DocOption key={s} name="print-size" value={s} checked={printSize === s} onChange={setPrintSize}>{s}</DocOption>
+            ))}
+          </div>
+        </fieldset>
+      )}
+      {selectedPrintDoc === "none" && (
+        <p className="mt-2 text-[11px] text-neutral-500">Transaksi tetap tersimpan. Struk atau faktur bisa dicetak nanti dari layar berikutnya atau Riwayat Transaksi.</p>
+      )}
 
       <Button className="mt-3" onClick={onPay} disabled={empty}><Check className="h-4 w-4" aria-hidden /> Bayar</Button>
       <button type="button" onClick={onSave} disabled={empty} className="mt-3 self-start text-xs font-semibold text-brand-600 hover:underline disabled:opacity-40">

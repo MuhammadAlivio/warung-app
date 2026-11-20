@@ -28,6 +28,7 @@ export const saleFromApi = (s) => ({
   cash: s.cash ?? null,
   change: s.change ?? 0,
   printDoc: s.print_doc ?? "receipt",
+  printSize: s.print_size ?? "A4",
   cashier: s.cashier ?? "",
   cancelReason: s.cancel_reason ?? "",
 });
@@ -56,7 +57,7 @@ export const fetchSale = (id) => api(`/api/sales/${id}`).then((r) => saleFromApi
 export const fetchNextSaleNo = () => api("/api/sales/next-number").then((r) => r.data.no);
 
 /** Simpan transaksi dari Kasir. */
-export const createSale = ({ customer, method, cash, items, printDoc }) =>
+export const createSale = ({ customer, method, cash, items, printDoc, printSize }) =>
   api("/api/sales", {
     method: "POST",
     body: {
@@ -64,6 +65,7 @@ export const createSale = ({ customer, method, cash, items, printDoc }) =>
       method,
       cash,
       print_doc: printDoc,
+      print_size: printSize,
       items: items.map((i) => ({ product_id: i.id, qty: i.qty })),
     },
   }).then((r) => saleFromApi(r.data));

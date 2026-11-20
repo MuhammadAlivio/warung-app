@@ -60,6 +60,7 @@ class SaleService
                 'payment_method' => $data['method'],
                 'payment_status' => $status,
                 'print_doc' => $data['print_doc'] ?? 'receipt',
+                'print_size' => $data['print_size'] ?? 'A4',
             ]);
 
             $sale->items()->createMany($lines->all());

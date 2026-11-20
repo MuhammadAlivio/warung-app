@@ -82,6 +82,25 @@ class SaleTest extends TestCase
         $this->assertSame(1, DB::table('sale_payments')->where('sale_id', $tx['id'])->count());
     }
 
+    public function test_print_choice_and_invoice_size_are_saved(): void
+    {
+        $post = fn (array $extra) => $this->actingAs($this->kasir)->postJson('/api/sales', [
+            'method' => 'Tunai', 'cash' => 10000, 'items' => [['product_id' => $this->beras, 'qty' => 1]], ...$extra,
+        ]);
+
+        // Tanpa cetak: transaksi tetap tersimpan dan stok tetap terpotong
+        $post(['print_doc' => 'none'])->assertCreated()->assertJsonPath('data.print_doc', 'none');
+        $this->assertSame(49, $this->stock($this->beras));
+
+        $post(['print_doc' => 'invoice', 'print_size' => 'A5'])->assertCreated()
+            ->assertJsonPath('data.print_doc', 'invoice')->assertJsonPath('data.print_size', 'A5');
+
+        $post([])->assertCreated()->assertJsonPath('data.print_doc', 'receipt')->assertJsonPath('data.print_size', 'A4');
+
+        $post(['print_size' => 'Letter'])->assertUnprocessable()
+            ->assertJsonPath('errors.print_size.0', 'Ukuran faktur harus A4 atau A5');
+    }
+
     public function test_price_comes_from_database_not_client(): void
     {
         $tx = $this->checkout([['product_id' => $this->beras, 'qty' => 1, 'price' => 1]], 10000);

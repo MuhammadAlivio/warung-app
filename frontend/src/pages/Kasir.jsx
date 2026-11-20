@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CalendarDays, Search } from "lucide-react";
 import { GENERAL_CUSTOMER } from "../lib/data/posMockData";
-import { formatTanggal, printDoc } from "../lib/utils/pos";
+import { formatTanggal, getInvoiceSize, printDoc, setInvoiceSize } from "../lib/utils/pos";
 import { cn } from "../lib/utils/cn";
 import { useStock } from "../lib/stores/StockContext";
 import { createSale, fetchNextSaleNo } from "../lib/utils/sales";
@@ -33,8 +33,14 @@ function KasirContent() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [method, setMethod] = useState("Tunai");
   const [cash, setCash] = useState(0);
-  // Dokumen yang dicetak saat checkout: hanya satu — "receipt" (struk) atau "invoice" (faktur A4)
+  // Dokumen yang dicetak saat checkout: "receipt" (struk 58mm), "invoice" (faktur A4/A5), atau "none" (tanpa cetak)
   const [selectedPrintDoc, setSelectedPrintDoc] = useState("receipt");
+  // Ukuran faktur diingat per komputer kasir
+  const [printSize, setPrintSizeState] = useState(getInvoiceSize);
+  const setPrintSize = (v) => {
+    setPrintSizeState(v);
+    setInvoiceSize(v);
+  };
   const [error, setError] = useState("");
   const [done, setDone] = useState(null);
 
@@ -65,11 +71,12 @@ function KasirContent() {
     if (savingRef.current) return;
     savingRef.current = true;
     try {
-      const tx = await createSale({ customer, method, cash: cashValue, items: cart.items, printDoc: selectedPrintDoc });
+      const tx = await createSale({ customer, method, cash: cashValue, items: cart.items, printDoc: selectedPrintDoc, printSize });
       addTransaction(tx);
       adjustStock(Object.fromEntries(tx.items.map((i) => [i.id, -i.qty])));
       setDone(tx);
-      setTimeout(() => printDoc(tx.printDoc), 400);
+      // "Tanpa cetak": dialog cetak tidak dibuka (printDoc mengabaikan "none")
+      if (tx.printDoc !== "none") setTimeout(() => printDoc(tx.printDoc, tx.printSize), 400);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -141,6 +148,7 @@ function KasirContent() {
             trxNo={trxNo} cart={cart} customer={customer} onPickCustomer={() => setPickerOpen(true)}
             method={method} setMethod={setMethod} cash={cash} setCash={(v) => { setCash(v); setError(""); }}
             selectedPrintDoc={selectedPrintDoc} setSelectedPrintDoc={setSelectedPrintDoc}
+            printSize={printSize} setPrintSize={setPrintSize}
             change={change} remaining={remaining} error={error} onPay={pay} onSave={save}
           />
         </div>
