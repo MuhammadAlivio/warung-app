@@ -203,13 +203,70 @@ class ChatbotTest extends TestCase
         $this->assertStringContainsString('lainnya', $reply);
     }
 
+    // ---------- Tagihan, penjualan, pelanggan (dari database, tanpa LLM) ----------
+
+    private function sell(int $customerId, int $productId, int $qty, int $cash): void
+    {
+        $this->actingAs($this->makeUser('kasir'))->postJson('/api/sales', [
+            'customer_id' => $customerId, 'method' => 'Tunai', 'cash' => $cash, 'items' => [['product_id' => $productId, 'qty' => $qty]],
+        ])->assertCreated();
+    }
+
+    public function test_unpaid_customers_are_answered_from_the_database(): void
+    {
+        $customer = \App\Models\Customer::create(['name' => "Pelanggan {$this->tag}"]);
+        $productId = $this->product("000 Barang {$this->tag}", 100, 10, 10000);
+
+        $this->sell($customer->id, $productId, 5, 20000); // sisa 30.000
+        $this->sell($customer->id, $productId, 3, 10000); // sisa 20.000
+
+        $reply = $this->ask('Siapa saja pelanggan yang belum membayar lunas?');
+
+        // Diakumulasi per pelanggan: Rp50.000 dari 2 transaksi, bukan dua baris terpisah
+        $this->assertStringContainsString("- Pelanggan {$this->tag} (Rp50.000, 2 transaksi)", $reply);
+        $this->assertStringContainsString('belum membayar lunas', $reply);
+    }
+
+    public function test_paid_and_cancelled_sales_are_not_listed_as_unpaid(): void
+    {
+        $customer = \App\Models\Customer::create(['name' => "Lunas {$this->tag}"]);
+        $productId = $this->product("000 Barang {$this->tag}", 100, 10, 10000);
+        $this->sell($customer->id, $productId, 2, 20000); // lunas
+
+        $this->assertStringNotContainsString("Lunas {$this->tag}", $this->ask('tagihan belum lunas'));
+    }
+
+    public function test_sales_today_is_answered_from_the_database(): void
+    {
+        preg_match('/Rp([\d.]+) dari (\d+) transaksi/', $this->ask('berapa penjualan hari ini?'), $before);
+
+        $customer = \App\Models\Customer::create(['name' => "Beli {$this->tag}"]);
+        $productId = $this->product("000 Barang {$this->tag}", 100, 10, 10000);
+        $this->sell($customer->id, $productId, 4, 40000); // Rp40.000
+
+        preg_match('/Rp([\d.]+) dari (\d+) transaksi/', $this->ask('Berapa penjualan hari ini?'), $after);
+
+        $toInt = fn ($rupiah) => (int) str_replace('.', '', $rupiah);
+        $this->assertSame($toInt($before[1]) + 40000, $toInt($after[1]));
+        $this->assertSame((int) $before[2] + 1, (int) $after[2]);
+        $this->assertStringContainsString('Penjualan bersih hari ini', $this->ask('omzet'));
+        $this->assertStringContainsString('bulan ini', $this->ask('penjualan bulan ini'));
+        $this->assertStringContainsString('kemarin', $this->ask('pendapatan kemarin'));
+    }
+
+    public function test_customer_count_is_answered_from_the_database(): void
+    {
+        $count = \App\Models\Customer::count();
+
+        $this->assertSame("Saat ini ada {$count} pelanggan terdaftar.", $this->ask('berapa jumlah pelanggan?'));
+    }
+
     // ---------- Bukan urusan chatbot stok ----------
 
-    public function test_other_questions_return_null_so_the_frontend_can_answer(): void
+    public function test_unrecognised_questions_return_null(): void
     {
-        $this->assertNull($this->ask('Siapa saja pelanggan yang belum membayar lunas?'));
-        $this->assertNull($this->ask('Berapa penjualan hari ini?'));
         $this->assertNull($this->ask('resep nasi goreng'));
+        $this->assertNull($this->ask('pelanggan terbaik'));
     }
 
     public function test_help_lists_what_the_bot_can_do(): void

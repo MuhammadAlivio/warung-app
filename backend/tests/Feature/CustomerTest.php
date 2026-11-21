@@ -54,7 +54,7 @@ class CustomerTest extends TestCase
             $res = $this->actingAs($this->makeUser($role))->getJson('/api/customers')->assertOk();
 
             $row = collect($res->json('data'))->firstWhere('id', $customer->id);
-            $this->assertSame(['id', 'name', 'phone', 'address', 'note'], array_keys($row));
+            $this->assertSame(['id', 'name', 'phone', 'address', 'note', 'outstanding', 'unpaid_count', 'transaction_count'], array_keys($row));
             $this->assertSame('catatan', $row['note']);
         }
     }
@@ -150,6 +150,104 @@ class CustomerTest extends TestCase
 
         $this->assertNotNull(Customer::find($customer->id));
         $this->assertFalse(ActivityLog::where('user_id', $kasir->id)->where('action', 'hapus')->exists());
+    }
+
+    // ---------- Ringkasan tagihan (dari database, bukan data tiruan) ----------
+
+    private function sell(int $customerId, int $productId, int $qty, int $cash): array
+    {
+        return $this->actingAs($this->makeUser('kasir'))->postJson('/api/sales', [
+            'customer_id' => $customerId, 'method' => 'Tunai', 'cash' => $cash, 'items' => [['product_id' => $productId, 'qty' => $qty]],
+        ])->assertCreated()->json('data');
+    }
+
+    private function product(int $price = 10000): int
+    {
+        return DB::table('products')->insertGetId([
+            'name' => 'Barang Tagihan '.uniqid(), 'category_id' => Category::create(['name' => 'Uji Tagihan '.uniqid()])->id,
+            'buy_price' => 1000, 'sell_price' => $price, 'stock' => 100, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    private function summaryOf(Customer $customer): array
+    {
+        $row = collect($this->actingAs($this->makeUser('kasir'))->getJson('/api/customers')->json('data'))->firstWhere('id', $customer->id);
+
+        return [$row['outstanding'], $row['unpaid_count'], $row['transaction_count']];
+    }
+
+    public function test_new_customer_has_zero_summary(): void
+    {
+        $id = $this->actingAs($this->makeUser('kasir'))->postJson('/api/customers', $this->payload())
+            ->assertCreated()->assertJsonPath('data.outstanding', 0)->assertJsonPath('data.unpaid_count', 0)->json('data.id');
+
+        $this->assertSame([0, 0, 0], $this->summaryOf(Customer::find($id)));
+    }
+
+    public function test_outstanding_is_the_sum_of_all_unpaid_sales_not_the_largest_one(): void
+    {
+        $customer = Customer::create(['name' => 'Akumulasi '.uniqid()]);
+        $product = $this->product(10000);
+
+        $this->sell($customer->id, $product, 5, 20000);  // total 50.000, dibayar 20.000 -> sisa 30.000
+        $this->sell($customer->id, $product, 3, 10000);  // total 30.000, dibayar 10.000 -> sisa 20.000
+        $this->sell($customer->id, $product, 2, 20000);  // total 20.000, lunas
+
+        // Akumulasi 50.000 (bukan 30.000 yang terbesar), 2 transaksi belum lunas dari 3 transaksi
+        $this->assertSame([50000, 2, 3], $this->summaryOf($customer));
+    }
+
+    public function test_cancelled_sales_are_not_counted_in_the_summary(): void
+    {
+        $customer = Customer::create(['name' => 'Batal '.uniqid()]);
+        $product = $this->product(10000);
+
+        $sale = $this->sell($customer->id, $product, 5, 10000); // sisa 40.000
+        $this->assertSame([40000, 1, 1], $this->summaryOf($customer));
+
+        $this->actingAs($this->makeUser('kasir'))->postJson("/api/sales/{$sale['id']}/cancel", ['reason' => 'salah input'])->assertOk();
+
+        $this->assertSame([0, 0, 0], $this->summaryOf($customer));
+    }
+
+    public function test_paying_off_a_sale_reduces_the_outstanding(): void
+    {
+        $customer = Customer::create(['name' => 'Cicil '.uniqid()]);
+        $sale = $this->sell($customer->id, $this->product(10000), 5, 10000); // sisa 40.000
+
+        $this->actingAs($this->makeUser('kasir'))->postJson("/api/sales/{$sale['id']}/payments", [
+            'date' => now('Asia/Jakarta')->toDateString(), 'method' => 'TF', 'amount' => 15000,
+        ])->assertOk();
+        $this->assertSame([25000, 1, 1], $this->summaryOf($customer));
+
+        $this->actingAs($this->makeUser('kasir'))->postJson("/api/sales/{$sale['id']}/payments", [
+            'date' => now('Asia/Jakarta')->toDateString(), 'method' => 'TF', 'amount' => 25000,
+        ])->assertOk();
+        $this->assertSame([0, 0, 1], $this->summaryOf($customer));
+    }
+
+    public function test_update_response_keeps_the_summary(): void
+    {
+        $customer = Customer::create(['name' => 'Ubah '.uniqid()]);
+        $this->sell($customer->id, $this->product(10000), 5, 10000);
+
+        $this->actingAs($this->makeUser('kasir'))->putJson("/api/customers/{$customer->id}", $this->payload(['name' => 'Nama Diubah Uji']))
+            ->assertOk()->assertJsonPath('data.outstanding', 40000)->assertJsonPath('data.unpaid_count', 1);
+    }
+
+    public function test_sales_can_be_filtered_by_customer(): void
+    {
+        $a = Customer::create(['name' => 'Milik A '.uniqid()]);
+        $b = Customer::create(['name' => 'Milik B '.uniqid()]);
+        $product = $this->product(10000);
+        $saleA = $this->sell($a->id, $product, 5, 10000);
+        $this->sell($b->id, $product, 5, 10000);
+
+        $kasir = $this->makeUser('kasir');
+        $res = $this->actingAs($kasir)->getJson("/api/sales?customer_id={$a->id}&status=Belum Lunas")->assertOk();
+
+        $this->assertSame([$saleA['id']], collect($res->json('data'))->pluck('id')->all());
+        $this->assertSame(1, $res->json('meta.total'));
     }
 
     public function test_unknown_customer_returns_404(): void

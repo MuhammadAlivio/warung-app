@@ -36,11 +36,11 @@ export const saleFromApi = (s) => ({
 const query = (params) =>
   new URLSearchParams(Object.entries(params).filter(([, v]) => v !== "" && v != null)).toString();
 
-/** filters: { dateFrom, dateTo, method, status, q, categoryId, cashierId, page, perPage }; tanggal kosong = tanpa batas */
-export async function fetchSales({ dateFrom, dateTo, method, status, q, categoryId, cashierId, page = 1, perPage = 10 }) {
+/** filters: { dateFrom, dateTo, method, status, q, categoryId, cashierId, customerId, page, perPage }; tanggal kosong = tanpa batas */
+export async function fetchSales({ dateFrom, dateTo, method, status, q, categoryId, cashierId, customerId, page = 1, perPage = 10 }) {
   const res = await api(`/api/sales?${query({
     date_from: dateFrom, date_to: dateTo, method, status, q: q?.trim(),
-    category_id: categoryId, cashier_id: cashierId, page, per_page: perPage,
+    category_id: categoryId, cashier_id: cashierId, customer_id: customerId, page, per_page: perPage,
   })}`);
   return { rows: res.data.map(saleFromApi), meta: res.meta };
 }

@@ -4,9 +4,7 @@ import { Button } from "../ui";
 import { cn } from "../../utils/cn";
 import { formatJam } from "../../utils/pos";
 import { api } from "../../api";
-import { useTransactions } from "../../stores/TransactionContext";
-import { useCustomers } from "../../stores/CustomerContext";
-import { getBotReply, QUICK_PROMPTS } from "../../utils/chatbotReplies";
+import { QUICK_PROMPTS, UNKNOWN_REPLY } from "../../utils/chatbotReplies";
 
 const GREETING = { id: 0, from: "bot", text: "Halo! Saya asisten Warung. Tanyakan stok barang, barang yang mau habis, tagihan pelanggan, atau penjualan hari ini.", at: new Date() };
 
@@ -17,8 +15,6 @@ export default function ChatbotWidget() {
   const [text, setText] = useState("");
   const [typing, setTyping] = useState(false);
   const endRef = useRef(null);
-  const { transactions } = useTransactions();
-  const { customers } = useCustomers();
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, typing, mode]);
   useEffect(() => {
@@ -34,13 +30,13 @@ export default function ChatbotWidget() {
     setMessages((m) => [...m, { id: Date.now(), from: "user", text: msg, at: new Date() }]);
     setText(""); setTyping(true);
 
-    // Server: LLM memanggil alat yang membaca database stok. reply null = bukan soal stok, pakai jawaban lokal (tagihan, penjualan).
+    // Semua jawaban dari server (database): stok lewat LLM + alat baca, tagihan dan penjualan lewat aturan kata kunci. null = tidak dikenali.
     // Beberapa pesan terakhir ikut dikirim supaya pertanyaan lanjutan ("kalau telur?") nyambung
     const history = messages.filter((m) => m.id !== GREETING.id).slice(-8).map((m) => ({ role: m.from === "user" ? "user" : "assistant", text: m.text }));
     let reply;
     try {
       const res = await api("/api/chatbot", { method: "POST", body: { message: msg, history } });
-      reply = res.reply ?? getBotReply(msg, { transactions, customers });
+      reply = res.reply ?? UNKNOWN_REPLY;
     } catch {
       reply = "Maaf, saya sedang tidak bisa mengambil data toko. Coba lagi sebentar lagi.";
     }

@@ -14,9 +14,46 @@ class CustomerController extends Controller
 
     public function index(): JsonResponse
     {
+        $summaries = $this->summaries();
+
         return response()->json([
-            'data' => Customer::orderByDesc('id')->get()->map->toApi(),
+            'data' => Customer::orderByDesc('id')->get()->map(fn (Customer $c) => $this->present($c, $summaries)),
         ]);
+    }
+
+    /**
+     * Ringkasan tagihan per pelanggan dari tabel sales (transaksi batal tidak dihitung):
+     * outstanding = jumlah sisa tagihan semua transaksi belum lunas (akumulasi, bukan satu transaksi),
+     * unpaid_count = jumlah transaksi belum lunas, transaction_count = semua transaksi.
+     */
+    private function summaries(?int $customerId = null): array
+    {
+        return DB::table('sales')
+            ->where('payment_status', '<>', 'batal')
+            ->whereNotNull('customer_id')
+            ->when($customerId, fn ($q) => $q->where('customer_id', $customerId))
+            ->selectRaw("
+                customer_id,
+                count(*) as transaction_count,
+                count(*) filter (where payment_status = 'belum_lunas') as unpaid_count,
+                coalesce(sum(total - paid_amount) filter (where payment_status = 'belum_lunas'), 0) as outstanding
+            ")
+            ->groupBy('customer_id')
+            ->get()
+            ->keyBy('customer_id')
+            ->all();
+    }
+
+    private function present(Customer $customer, array $summaries): array
+    {
+        $s = $summaries[$customer->id] ?? null;
+
+        return [
+            ...$customer->toApi(),
+            'outstanding' => (int) ($s->outstanding ?? 0),
+            'unpaid_count' => (int) ($s->unpaid_count ?? 0),
+            'transaction_count' => (int) ($s->transaction_count ?? 0),
+        ];
     }
 
     public function store(Request $request): JsonResponse
@@ -25,7 +62,7 @@ class CustomerController extends Controller
 
         $this->logger->record($request, 'pelanggan', 'tambah', "Menambah pelanggan {$customer->name}", $customer);
 
-        return response()->json(['data' => $customer->toApi()], 201);
+        return response()->json(['data' => $this->present($customer, [])], 201);
     }
 
     public function update(Request $request, Customer $customer): JsonResponse
@@ -34,7 +71,7 @@ class CustomerController extends Controller
 
         $this->logger->record($request, 'pelanggan', 'ubah', "Mengubah data pelanggan {$customer->name}", $customer);
 
-        return response()->json(['data' => $customer->toApi()]);
+        return response()->json(['data' => $this->present($customer, $this->summaries($customer->id))]);
     }
 
     public function destroy(Request $request, Customer $customer): JsonResponse

@@ -1,13 +1,14 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, ChevronRight, Plus, Search } from "lucide-react";
 import { Badge, Button, Card, ErrorDialog, Modal, ModalBody, ModalFooter, Pagination, Select } from "../lib/components/ui";
 import AdminShell from "../lib/components/layout/AdminShell";
 import CustomerFormModal from "../lib/components/pelanggan/CustomerFormModal";
 import { cn } from "../lib/utils/cn";
-import { formatRupiah } from "../lib/utils/pos";
-import { remainingOf, statusOf } from "../lib/utils/transaction";
-import { useCustomerSummary, useCustomers } from "../lib/stores/CustomerContext";
+import { formatRupiah, formatTanggal } from "../lib/utils/pos";
+import { remainingOf } from "../lib/utils/transaction";
+import { fetchSales } from "../lib/utils/sales";
+import { customerApiId, useCustomerSummary, useCustomers } from "../lib/stores/CustomerContext";
 
 const PAGE_SIZE = 8;
 const FILTER_OPTIONS = [
@@ -26,38 +27,90 @@ const Stat = ({ title, value, sub }) => (
   </Card>
 );
 
-/** Isi baris dropdown: ringkasan transaksi terakhir pelanggan + tombol menuju Riwayat Transaksi. */
-function CustomerInspection({ customer, tx, onOpenHistory }) {
+const UNPAID_PREVIEW = 5;
+
+/**
+ * Isi baris dropdown: ringkasan tagihan pelanggan dari database.
+ * Status "Belum Lunas" dihitung dari AKUMULASI sisa semua transaksi belum lunas, jadi di sini ditampilkan
+ * totalnya, jumlah transaksinya, dan daftar transaksi yang membentuknya.
+ */
+function CustomerInspection({ customer, summary, onOpenHistory }) {
+  const [unpaid, setUnpaid] = useState(null); // null = memuat, "error", atau { rows, total }
+
+  useEffect(() => {
+    if (summary.unpaidCount === 0) return setUnpaid({ rows: [], total: 0 });
+    let cancelled = false;
+    setUnpaid(null);
+    fetchSales({ status: "Belum Lunas", customerId: customerApiId(customer.id), perPage: UNPAID_PREVIEW })
+      .then(({ rows, meta }) => !cancelled && setUnpaid({ rows, total: meta.total }))
+      .catch(() => !cancelled && setUnpaid("error"));
+    return () => {
+      cancelled = true;
+    };
+  }, [customer.id, summary.unpaidCount, summary.outstanding]);
+
+  const hasUnpaid = summary.outstanding > 0;
+  const firstUnpaidId = unpaid && unpaid !== "error" ? unpaid.rows[0]?.id : undefined;
+
   return (
     <div className="rounded-lg border border-neutral-200 bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-bold text-neutral-900">Inspeksi transaksi pelanggan</h3>
-          <p className="mt-0.5 text-xs text-neutral-500">Ringkasan singkat transaksi terakhir {customer.name}.</p>
+          <h3 className="text-sm font-bold text-neutral-900">Ringkasan tagihan pelanggan</h3>
+          <p className="mt-0.5 text-xs text-neutral-500">
+            Status dihitung dari jumlah sisa semua transaksi belum lunas {customer.name}.
+          </p>
         </div>
-        {tx && (
-          <Button fullWidth={false} size="sm" onClick={onOpenHistory}>
-            Lihat riwayat transaksi
+        {summary.transactionCount > 0 && (
+          <Button fullWidth={false} size="sm" onClick={() => onOpenHistory(firstUnpaidId)}>
+            {hasUnpaid ? "Lihat transaksi belum lunas" : "Lihat riwayat transaksi"}
           </Button>
         )}
       </div>
 
-      {tx ? (
-        <dl className="mt-4 space-y-2.5 rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-xs">
-          <div className="flex justify-between gap-4"><dt className="text-neutral-500">Transaksi</dt><dd className="font-mono">#{tx.no}</dd></div>
-          <div className="flex justify-between gap-4"><dt className="text-neutral-500">Total tagihan</dt><dd className="font-mono">{formatRupiah(tx.total)}</dd></div>
-          <div className="flex justify-between gap-4"><dt className="text-neutral-500">Sudah dibayar</dt><dd className="font-mono">{formatRupiah(tx.paid)}</dd></div>
-          <div className="flex justify-between gap-4">
-            <dt className="text-neutral-500">Sisa tagihan</dt>
-            <dd className={cn("font-mono", remainingOf(tx) > 0 && "text-red-600")}>{formatRupiah(remainingOf(tx))}</dd>
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <dt className="text-neutral-500">Status transaksi</dt>
-            <dd><StatusBadge unpaid={statusOf(tx) !== "Lunas"} /></dd>
-          </div>
-        </dl>
-      ) : (
+      {summary.transactionCount === 0 ? (
         <p className="mt-4 rounded-lg bg-neutral-50 p-4 text-xs text-neutral-500">Pelanggan ini belum memiliki transaksi.</p>
+      ) : (
+        <>
+          <dl className="mt-4 space-y-2.5 rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-xs">
+            <div className="flex justify-between gap-4"><dt className="text-neutral-500">Total transaksi</dt><dd className="font-mono">{summary.transactionCount}</dd></div>
+            <div className="flex justify-between gap-4"><dt className="text-neutral-500">Transaksi belum lunas</dt><dd className="font-mono">{summary.unpaidCount}</dd></div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-neutral-500">Akumulasi sisa tagihan</dt>
+              <dd className={cn("font-mono font-semibold", hasUnpaid && "text-red-600")}>{formatRupiah(summary.outstanding)}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <dt className="text-neutral-500">Status pelanggan</dt>
+              <dd><StatusBadge unpaid={hasUnpaid} /></dd>
+            </div>
+          </dl>
+
+          {hasUnpaid && (
+            <div className="mt-4">
+              <h4 className="mb-2 text-xs font-semibold text-neutral-900">Transaksi belum lunas</h4>
+              {unpaid === null && <p className="text-xs text-neutral-500">Memuat…</p>}
+              {unpaid === "error" && <p className="text-xs text-red-600">Daftar transaksi gagal dimuat. Coba tutup dan buka lagi.</p>}
+              {unpaid && unpaid !== "error" && (
+                <>
+                  <ul className="divide-y divide-neutral-100 rounded-lg border border-neutral-200 text-xs">
+                    {unpaid.rows.map((t) => (
+                      <li key={t.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="font-mono">#{t.no}</p>
+                          <p className="text-neutral-500">{formatTanggal(t.date)} · total {formatRupiah(t.total)}, dibayar {formatRupiah(t.paid)}</p>
+                        </div>
+                        <span className="shrink-0 font-mono font-semibold text-red-600">{formatRupiah(remainingOf(t))}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {unpaid.total > unpaid.rows.length && (
+                    <p className="mt-2 text-xs text-neutral-500">…dan {unpaid.total - unpaid.rows.length} transaksi lainnya. Klik "Lihat transaksi belum lunas" untuk semuanya.</p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -65,8 +118,13 @@ function CustomerInspection({ customer, tx, onOpenHistory }) {
 
 function DaftarPelangganContent() {
   const navigate = useNavigate();
-  const { customers, addCustomer, updateCustomer, removeCustomer } = useCustomers();
+  const { customers, addCustomer, updateCustomer, removeCustomer, refresh } = useCustomers();
   const summary = useCustomerSummary();
+
+  // Tagihan dari transaksi baru (Kasir, pelunasan) harus ikut terlihat setiap halaman ini dibuka
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("all");
@@ -170,8 +228,10 @@ function DaftarPelangganContent() {
                           <td colSpan={5} className="px-4 pb-4 pt-0">
                             <CustomerInspection
                               customer={c}
-                              tx={s.lastUnpaid ?? s.last}
-                              onOpenHistory={() => navigate("/riwayat-transaksi", { state: { search: c.name, selectedId: (s.lastUnpaid ?? s.last)?.id } })}
+                              summary={s}
+                              onOpenHistory={(selectedId) =>
+                                navigate("/riwayat-transaksi", { state: { search: c.name, status: s.outstanding > 0 ? "Belum Lunas" : "", selectedId } })
+                              }
                             />
                           </td>
                         </tr>

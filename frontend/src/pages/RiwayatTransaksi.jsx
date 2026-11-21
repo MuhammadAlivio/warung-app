@@ -68,7 +68,7 @@ function RiwayatTransaksiContent() {
   const [q, setQ] = useState(location.state?.search ?? "");
   const [debouncedQ, setDebouncedQ] = useState(q);
   const [method, setMethod] = useState("");
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState(location.state?.status ?? "");
   const [categoryId, setCategoryId] = useState("");
   const [cashierId, setCashierId] = useState("");
   const [cashiers, setCashiers] = useState([]);

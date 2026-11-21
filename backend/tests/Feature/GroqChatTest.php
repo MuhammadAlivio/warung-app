@@ -155,6 +155,7 @@ class GroqChatTest extends TestCase
 
     public function test_customer_and_money_questions_never_reach_the_llm(): void
     {
+        // Dijawab aturan kata kunci dari database; nama pelanggan dan nominal tidak keluar dari server
         Http::fake();
 
         foreach ([
@@ -164,7 +165,7 @@ class GroqChatTest extends TestCase
             'tagihan Budi berapa',
             'laba minggu ini',
         ] as $question) {
-            $this->ask($question)->assertOk()->assertJsonPath('reply', null)->assertJsonPath('source', 'local');
+            $this->ask($question)->assertOk()->assertJsonPath('source', 'rules');
         }
 
         Http::assertNothingSent();

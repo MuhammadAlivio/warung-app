@@ -33,7 +33,7 @@ class SaleController extends Controller
      * Daftar transaksi + filter. `q` mencari nomor transaksi ATAU nama / no. HP pelanggan.
      * `category_id` = transaksi yang berisi minimal satu barang dari jenis/kategori tersebut.
      * Tanggal: `date` (satu hari) atau rentang `date_from` / `date_to` (boleh salah satu saja), tanggal lokal WIB.
-     * `cashier_id` = kasir yang melayani.
+     * `cashier_id` = kasir yang melayani. `customer_id` = transaksi milik satu pelanggan.
      */
     public function index(Request $request): JsonResponse
     {
@@ -220,6 +220,7 @@ class SaleController extends Controller
             'q' => ['nullable', 'string', 'max:100'],
             'category_id' => ['nullable', 'integer'],
             'cashier_id' => ['nullable', 'integer'],
+            'customer_id' => ['nullable', 'integer'],
         ];
     }
 
@@ -238,6 +239,7 @@ class SaleController extends Controller
             ->when($data['date_from'] ?? null, fn (Builder $b, $d) => $b->whereRaw("{$localDate} >= ?", [$d]))
             ->when($data['date_to'] ?? null, fn (Builder $b, $d) => $b->whereRaw("{$localDate} <= ?", [$d]))
             ->when($data['cashier_id'] ?? null, fn (Builder $b, $c) => $b->where('user_id', $c))
+            ->when($data['customer_id'] ?? null, fn (Builder $b, $c) => $b->where('customer_id', $c))
             ->when($data['method'] ?? null, fn (Builder $b, $m) => $b->where('payment_method', self::METHODS[$m]))
             ->when($data['category_id'] ?? null, fn (Builder $b, $c) => $b->whereExists(fn ($e) => $e
                 ->select(DB::raw(1))
