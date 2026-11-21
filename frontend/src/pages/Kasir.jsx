@@ -9,7 +9,6 @@ import { createSale, fetchNextSaleNo } from "../lib/utils/sales";
 import AdminShell from "../lib/components/layout/AdminShell";
 import { useCart } from "../lib/hooks/useCart";
 import { useCatalog, useStockAdjust } from "../lib/hooks/useCatalog";
-import { useTransactions } from "../lib/stores/TransactionContext";
 import ProductCard from "../lib/components/pos/ProductCard";
 import CartPanel from "../lib/components/pos/CartPanel";
 import CustomerPickerModal from "../lib/components/pos/CustomerPickerModal";
@@ -18,8 +17,6 @@ import PaymentSuccess from "../lib/components/pos/PaymentSuccess";
 function KasirContent() {
   const navigate = useNavigate();
   const cart = useCart();
-  // addTransaction: salinan sesi untuk Daftar Pelanggan & Chatbot (masih membaca TransactionContext)
-  const { addTransaction } = useTransactions();
   const searchRef = useRef(null);
   const savingRef = useRef(false);
   const catalog = useCatalog();
@@ -72,7 +69,6 @@ function KasirContent() {
     savingRef.current = true;
     try {
       const tx = await createSale({ customer, method, cash: cashValue, items: cart.items, printDoc: selectedPrintDoc, printSize });
-      addTransaction(tx);
       adjustStock(Object.fromEntries(tx.items.map((i) => [i.id, -i.qty])));
       setDone(tx);
       // "Tanpa cetak": dialog cetak tidak dibuka (printDoc mengabaikan "none")

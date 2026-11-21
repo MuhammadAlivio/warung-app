@@ -86,9 +86,6 @@ export const terbilang = (n) => {
   return `${s.charAt(0).toUpperCase()}${s.slice(1)} rupiah.`;
 };
 
-export const makeTrxNo = (seq = 42, d = new Date()) =>
-  `TRX-${p2(d.getDate())}${p2(d.getMonth() + 1)}${String(d.getFullYear()).slice(2)}-${String(seq).padStart(3, "0")}`;
-
 /** Ukuran kertas faktur (struk selalu thermal 58mm). Sama dengan Sale::INVOICE_SIZES di backend. */
 export const INVOICE_SIZES = ["A4", "A5"];
 const SIZE_KEY = "warung.invoiceSize";

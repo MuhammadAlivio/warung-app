@@ -7,7 +7,6 @@ import { Badge, Button, Card, Modal, ModalBody, ModalFooter, Select, Textarea } 
 import { cn } from "../lib/utils/cn";
 import { formatRupiah, formatTglJam } from "../lib/utils/pos";
 import { useCatalog, useStockAdjust } from "../lib/hooks/useCatalog";
-import { useTransactions } from "../lib/stores/TransactionContext";
 import { totalOf, remainingOf, statusOf, STATUS_VARIANT } from "../lib/utils/transaction";
 import { makeEditTransactionSchema } from "../lib/schemas/transaction";
 import { fetchSale, updateSaleItems } from "../lib/utils/sales";
@@ -41,8 +40,6 @@ function EditTransaksiContent() {
 
 function EditTransaksiForm({ tx }) {
   const navigate = useNavigate();
-  // editItems: salinan sesi untuk Daftar Pelanggan & Chatbot (masih membaca TransactionContext)
-  const { editItems } = useTransactions();
   const [submitError, setSubmitError] = useState("");
   const catalog = useCatalog();
   const adjustStock = useStockAdjust();
@@ -99,7 +96,6 @@ function EditTransaksiForm({ tx }) {
       tx.items.forEach((i) => { delta[i.id] = (delta[i.id] ?? 0) + i.qty; });
       saved.items.forEach((i) => { delta[i.id] = (delta[i.id] ?? 0) - i.qty; });
       adjustStock(delta);
-      editItems(tx.id, saved.items, v.reason.trim());
       navigate("/riwayat-transaksi", { state: { selectedId: tx.id } });
     } catch (e) {
       setSubmitError(e.message);

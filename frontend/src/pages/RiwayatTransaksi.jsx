@@ -5,7 +5,6 @@ import { Badge, Button, Card, Input, Pagination, Select } from "../lib/component
 import { cn } from "../lib/utils/cn";
 import { formatAngka, formatJam, formatRupiah, formatTanggal, formatTglJam, getInvoiceSize, printDoc, toInputDate } from "../lib/utils/pos";
 import { api } from "../lib/api";
-import { useTransactions } from "../lib/stores/TransactionContext";
 import { useStockAdjust } from "../lib/hooks/useCatalog";
 import { useStock } from "../lib/stores/StockContext";
 import AdminShell from "../lib/components/layout/AdminShell";
@@ -60,8 +59,6 @@ function Stat({ title, value, sub }) {
 function RiwayatTransaksiContent() {
   const navigate = useNavigate();
   const location = useLocation();
-  // Sinkron ke data sesi (Daftar Pelanggan & Chatbot masih membaca TransactionContext)
-  const { addPayment, cancelTransaction } = useTransactions();
   const adjustStock = useStockAdjust();
   const { categories } = useStock();
 
@@ -155,7 +152,6 @@ function RiwayatTransaksiContent() {
   const submitPayment = async (pay) => {
     try {
       await addSalePayment(selected.id, pay);
-      addPayment(selected.id, pay);
       setActionError("");
     } catch (e) {
       setActionError(e.message);
@@ -167,7 +163,6 @@ function RiwayatTransaksiContent() {
     try {
       await cancelSale(selected.id, reason);
       adjustStock(Object.fromEntries(selected.items.map((i) => [i.id, i.qty])));
-      cancelTransaction(selected.id, reason);
       setActionError("");
     } catch (e) {
       setActionError(e.message);
