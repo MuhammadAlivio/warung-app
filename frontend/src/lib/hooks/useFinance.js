@@ -3,8 +3,11 @@ import { api } from "../api";
 
 // Data halaman Keuangan dari backend (/api/finance/*, khusus admin).
 
-/** Laporan satu periode: summary, breakdown (rincian), operational_costs. */
-export function useFinanceReport(period, date) {
+/**
+ * Laporan satu periode: summary, breakdown (rincian), operational_costs.
+ * period "harian" | "mingguan" | "bulanan" memakai `date`; period "rentang" memakai `start` & `end`.
+ */
+export function useFinanceReport(period, date, start, end) {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -14,12 +17,13 @@ export function useFinanceReport(period, date) {
     let cancelled = false;
     setLoading(true);
     setError("");
-    api(`/api/finance/report?period=${period}&date=${date}`)
+    const params = period === "rentang" ? new URLSearchParams({ period, start, end }) : new URLSearchParams({ period, date });
+    api(`/api/finance/report?${params}`)
       .then((res) => !cancelled && setReport(res.data))
       .catch((e) => !cancelled && setError(e.message || "Gagal memuat laporan keuangan."))
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
-  }, [period, date, version]);
+  }, [period, date, start, end, version]);
 
   const reload = useCallback(() => setVersion((v) => v + 1), []);
   return { report, loading, error, reload };

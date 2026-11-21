@@ -27,13 +27,28 @@ class FinanceController extends Controller
         private ActivityLogger $logger,
     ) {}
 
-    /** GET /api/finance/report?period=harian|mingguan|bulanan&date=YYYY-MM-DD */
+    /**
+     * GET /api/finance/report?period=harian|mingguan|bulanan&date=YYYY-MM-DD
+     * GET /api/finance/report?period=rentang&start=YYYY-MM-DD&end=YYYY-MM-DD   (maks. MAX_RANGE_DAYS hari)
+     */
     public function report(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'period' => ['required', Rule::in(FinanceService::PERIODS)],
-            'date' => ['required', 'date_format:Y-m-d'],
+            'period' => ['required', Rule::in([...FinanceService::PERIODS, 'rentang'])],
+            'date' => ['required_unless:period,rentang', 'nullable', 'date_format:Y-m-d'],
+            'start' => ['required_if:period,rentang', 'nullable', 'date_format:Y-m-d'],
+            'end' => ['required_if:period,rentang', 'nullable', 'date_format:Y-m-d', 'after_or_equal:start'],
+        ], [
+            'start.required_if' => 'Pilih tanggal awal.',
+            'end.required_if' => 'Pilih tanggal akhir.',
+            'end.after_or_equal' => 'Tanggal akhir tidak boleh sebelum tanggal awal.',
         ]);
+
+        if ($data['period'] === 'rentang') {
+            [$start, $end] = $this->validRange($data['start'], $data['end']);
+
+            return response()->json(['data' => $this->finance->rangeReport($start, $end)]);
+        }
 
         return response()->json([
             'data' => $this->finance->report($data['period'], CarbonImmutable::parse($data['date'])),

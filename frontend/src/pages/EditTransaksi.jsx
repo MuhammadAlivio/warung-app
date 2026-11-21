@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFieldArray, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -46,6 +46,8 @@ function EditTransaksiForm({ tx }) {
   const productOf = (pid) => catalog.find((p) => p.id === pid);
 
   const [query, setQuery] = useState("");
+  const [listOpen, setListOpen] = useState(false);
+  const searchRef = useRef(null);
   const [swapIndex, setSwapIndex] = useState(null);
   const [swapTo, setSwapTo] = useState("");
 
@@ -70,18 +72,35 @@ function EditTransaksiForm({ tx }) {
   const status = statusOf(tx);
   const itemsError = errors.items?.message ?? errors.items?.root?.message;
 
+  // Kolom kosong + daftar dibuka (klik kolom / tombol Tambah barang) = tampilkan semua barang
   const suggestions = query.trim()
-    ? catalog.filter((p) => p.name.toLowerCase().includes(query.trim().toLowerCase())) : [];
+    ? catalog.filter((p) => p.name.toLowerCase().includes(query.trim().toLowerCase()))
+    : listOpen ? catalog : [];
 
   const addProduct = (p) => {
     const idx = items.findIndex((i) => i.id === p.id);
     if (idx >= 0) setValue(`items.${idx}.qty`, items[idx].qty + 1, { shouldDirty: true, shouldValidate: true });
     else append({ id: p.id, name: p.name, price: p.price, qty: 1 }, { shouldFocus: false });
     setQuery("");
+    setListOpen(false);
+  };
+  const onAddClick = () => {
+    if (query.trim() && suggestions[0]) return addProduct(suggestions[0]);
+    setListOpen(true);
+    searchRef.current?.focus();
+  };
+  const onSearchKeyDown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault(); // jangan sampai form tersimpan
+      if (query.trim() && suggestions[0]) addProduct(suggestions[0]);
+    } else if (e.key === "Escape") {
+      setListOpen(false);
+      setQuery("");
+    }
   };
   const setQty = (i, q) => setValue(`items.${i}.qty`, Math.max(1, q), { shouldDirty: true, shouldValidate: true });
   const confirmSwap = () => {
-    const p = productOf(swapTo);
+    const p = productOf(Number(swapTo)); // nilai <select> berupa string, id barang berupa angka
     if (p) update(swapIndex, { id: p.id, name: p.name, price: p.price, qty: items[swapIndex].qty });
     setSwapIndex(null); setSwapTo("");
   };
@@ -135,19 +154,20 @@ function EditTransaksiForm({ tx }) {
           <div className="relative mt-4 flex gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" aria-hidden />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Cari nama barang atau pindai barcode..." aria-label="Cari barang"
+              <input ref={searchRef} value={query} onChange={(e) => { setQuery(e.target.value); setListOpen(true); }}
+                onFocus={() => setListOpen(true)} onBlur={() => setListOpen(false)} onKeyDown={onSearchKeyDown} placeholder="Cari nama barang atau pindai barcode..." aria-label="Cari barang"
                 className="h-11 w-full rounded-lg border border-neutral-200 pl-10 pr-3 text-sm placeholder:text-neutral-400 focus:border-brand-600 focus:outline-none focus:ring-4 focus:ring-brand-600/15" />
               {suggestions.length > 0 && (
                 <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-neutral-100 bg-white p-1 shadow-lg">
                   {suggestions.map((p) => (
-                    <li key={p.id}><button type="button" onClick={() => addProduct(p)} className="flex w-full justify-between rounded-md px-3 py-2 text-left text-sm hover:bg-brand-50">
+                    <li key={p.id}><button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => addProduct(p)} className="flex w-full justify-between rounded-md px-3 py-2 text-left text-sm hover:bg-brand-50">
                       <span>{p.name} <span className="text-xs text-neutral-500">· stok {p.stock}</span></span><span className="font-mono text-xs">{formatRupiah(p.price)}</span>
                     </button></li>
                   ))}
                 </ul>
               )}
             </div>
-            <Button variant="outline" fullWidth={false} onClick={() => suggestions[0] && addProduct(suggestions[0])} className="shrink-0"><Plus className="h-4 w-4" aria-hidden /> Tambah barang</Button>
+            <Button variant="outline" fullWidth={false} onClick={onAddClick} className="shrink-0"><Plus className="h-4 w-4" aria-hidden /> Tambah barang</Button>
           </div>
 
           <p className="mt-3 flex items-center gap-2 rounded-lg bg-neutral-50 px-3 py-2.5 text-xs text-neutral-500"><Info className="h-4 w-4" aria-hidden /> Jika stok habis, ganti atau hapus barang.</p>

@@ -77,12 +77,16 @@ function EmptyChart({ children }) {
 }
 
 /** Kartu grafik: tab "Arus kas" (batang masuk vs keluar) dan "Saldo" (tren saldo akhir). */
-function CashflowChart({ rows, tab }) {
+function CashflowChart({ rows, tab, perWeek }) {
   const [mode, setMode] = useState("cash");
-  const perWeek = tab === "bulanan";
   const data = rows.map((r) => ({ ...r, x: axisLabel(r, perWeek) }));
   const hasCash = rows.some((r) => r.kas_masuk > 0 || r.kas_keluar > 0);
-  const subtitle = tab === "harian" ? "7 hari terakhir" : tab === "mingguan" ? "Per hari, minggu ini" : "Per minggu, bulan ini";
+  const subtitle = {
+    harian: "7 hari terakhir",
+    mingguan: "Per hari, minggu ini",
+    bulanan: "Per minggu, bulan ini",
+    rentang: perWeek ? "Per minggu, rentang terpilih" : "Per hari, rentang terpilih",
+  }[tab];
 
   return (
     <Card className="mt-4 p-5">
@@ -180,14 +184,14 @@ function HorizontalBars({ items, color, valueOf, renderValue, empty }) {
 }
 
 /** Grafik halaman Keuangan (FR-FIN-06 & FR-FIN-08). `charts` dari /api/finance/report. */
-export default function FinanceCharts({ charts, tab, loading }) {
+export default function FinanceCharts({ charts, tab, perWeek = tab === "bulanan", loading }) {
   const expenses = charts?.expense_by_category ?? [];
   const totalExpense = expenses.reduce((s, e) => s + e.amount, 0);
   const products = charts?.top_products ?? [];
 
   return (
     <div className={cn("transition-opacity", loading && "opacity-60")} aria-busy={loading}>
-      <CashflowChart rows={charts?.cashflow ?? []} tab={tab} />
+      <CashflowChart rows={charts?.cashflow ?? []} tab={tab} perWeek={perWeek} />
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <Card className="p-5">

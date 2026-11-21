@@ -82,8 +82,29 @@ class FinanceService
             $breakdown = $cashflow = $this->breakdown($period === 'bulanan' ? 'week' : 'day', $start, $end, $r);
         }
 
+        return $this->reportPayload($period, $period === 'bulanan' ? 'week' : 'day', $start, $end, $r, $breakdown, $cashflow);
+    }
+
+    /**
+     * Laporan rentang bebas (tab "Rentang"): rincian & grafik per hari bila rentang <= 31 hari,
+     * selain itu per minggu (sama seperti Unduh laporan).
+     */
+    public function rangeReport(CarbonImmutable $start, CarbonImmutable $end): array
+    {
+        $start = $start->startOfDay();
+        $end = $end->startOfDay();
+        $mode = $start->diffInDays($end) < 31 ? 'day' : 'week';
+
+        $r = $this->compute($start, $end);
+        $breakdown = $this->breakdown($mode, $start, $end, $r);
+
+        return $this->reportPayload('rentang', $mode, $start, $end, $r, $breakdown, $breakdown);
+    }
+
+    private function reportPayload(string $period, string $mode, CarbonImmutable $start, CarbonImmutable $end, array $r, Collection $breakdown, Collection $cashflow): array
+    {
         return [
-            'period' => ['type' => $period, 'start' => $start->toDateString(), 'end' => $end->toDateString()],
+            'period' => ['type' => $period, 'start' => $start->toDateString(), 'end' => $end->toDateString(), 'breakdown' => $mode],
             'summary' => $r['summary'],
             'breakdown' => $breakdown,
             'operational_costs' => $r['entries']->where('effect', 'biaya')->values(),

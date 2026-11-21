@@ -142,7 +142,7 @@ class FinanceTest extends TestCase
         $data = $this->report('mingguan', '2031-03-05');
         $s = $data['summary'];
 
-        $this->assertSame(['type' => 'mingguan', 'start' => '2031-03-03', 'end' => '2031-03-09'], $data['period']);
+        $this->assertSame(['type' => 'mingguan', 'start' => '2031-03-03', 'end' => '2031-03-09', 'breakdown' => 'day'], $data['period']);
         $this->assertSame(62000, $s['kas_masuk']);          // 50.000 + 5.000 + 7.000
         $this->assertSame(75000, $s['kas_keluar']);         // 40.000 + 25.000 + 10.000
         $this->assertSame(-13000, $s['arus_kas_bersih']);
@@ -178,11 +178,36 @@ class FinanceTest extends TestCase
 
         // Maret 2031 dimulai hari Sabtu: Minggu 1 = 1-2 Mar, Minggu 6 = 31 Mar
         $bulanan = $this->report('bulanan', '2031-03-20');
-        $this->assertSame(['type' => 'bulanan', 'start' => '2031-03-01', 'end' => '2031-03-31'], $bulanan['period']);
+        $this->assertSame(['type' => 'bulanan', 'start' => '2031-03-01', 'end' => '2031-03-31', 'breakdown' => 'week'], $bulanan['period']);
         $this->assertCount(6, $bulanan['breakdown']);
         $this->assertSame(['start' => '2031-03-01', 'end' => '2031-03-02', 'label' => 'Minggu 1'], array_intersect_key($bulanan['breakdown'][0], array_flip(['start', 'end', 'label'])));
         $this->assertSame(70000, $bulanan['breakdown'][1]['penjualan']);
         $this->assertSame(3000, $bulanan['summary']['laba_usaha']);
+    }
+
+    public function test_custom_range_report(): void
+    {
+        $this->seedWeek();
+        $get = fn (string $q) => $this->actingAs($this->admin)->getJson('/api/finance/report?period=rentang&'.$q);
+
+        // Rentang = minggu yang sama -> angka sama dengan laporan mingguan, rincian per hari
+        $week = $this->report('mingguan', '2031-03-05');
+        $range = $get('start=2031-03-03&end=2031-03-09')->assertOk()->json('data');
+        $this->assertSame($week['summary'], $range['summary']);
+        $this->assertSame(['type' => 'rentang', 'start' => '2031-03-03', 'end' => '2031-03-09', 'breakdown' => 'day'], $range['period']);
+        $this->assertCount(7, $range['breakdown']);
+        $this->assertCount(7, $range['charts']['cashflow']);
+
+        // Rentang panjang (> 31 hari) -> rincian per minggu, total tetap sama
+        $long = $get('start=2031-02-01&end=2031-03-31')->assertOk()->json('data');
+        $this->assertSame('week', $long['period']['breakdown']);
+        $this->assertSame($week['summary']['laba_usaha'], $long['summary']['laba_usaha']);
+        $this->assertSame('2031-02-01', $long['breakdown'][0]['start']);
+
+        // Validasi
+        $get('start=2031-03-09&end=2031-03-03')->assertUnprocessable()->assertJsonValidationErrors('end');
+        $get('start=2031-03-03')->assertUnprocessable()->assertJsonValidationErrors('end');
+        $get('start=2029-01-01&end=2031-03-03')->assertUnprocessable()->assertJsonValidationErrors('end');
     }
 
     public function test_opening_balance_continues_from_previous_period(): void

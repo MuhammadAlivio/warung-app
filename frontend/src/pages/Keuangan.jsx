@@ -870,11 +870,37 @@ const EMPTY_SUMMARY = {
   bayar_pemasok: 0, keluar_lainnya: 0, prive: 0, arus_kas_bersih: 0, saldo_awal: 0, saldo_akhir: 0, piutang: 0, jumlah_transaksi: 0,
 };
 
+// Klik di mana saja pada label langsung membuka kalender (input tanggal transparan menutupi label)
+const openPicker = (e) => { try { e.currentTarget.showPicker?.(); } catch { /* browser lama: tetap bisa diketik */ } };
+
+function DatePickerLabel({ label, value, onChange, withIcon = true, children }) {
+  return (
+    <label
+      title={label}
+      className="relative flex cursor-pointer items-center gap-1.5 rounded px-2 py-0.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 focus-within:ring-2 focus-within:ring-brand-600/30"
+    >
+      {withIcon && <Calendar className="h-3 w-3 text-neutral-400" aria-hidden />}
+      {children}
+      <input
+        type="date"
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onClick={openPicker}
+        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+      />
+    </label>
+  );
+}
+
 const signedRupiah = (n) => `${n < 0 ? "− " : "+ "}${formatRupiah(Math.abs(n))}`;
 
 export default function KeuanganPage() {
   const [tab, setTab] = useState("harian");
   const [currentDate, setCurrentDate] = useState(() => new Date());
+  // Tab "Rentang": tanggal awal & akhir bebas (YYYY-MM-DD)
+  const [rangeStart, setRangeStart] = useState(() => isoDate(addDays(new Date(), -6)));
+  const [rangeEnd, setRangeEnd] = useState(() => isoDate(new Date()));
   const [catatOpen, setCatatOpen] = useState(false);
   const [unduhOpen, setUnduhOpen] = useState(false);
   const [customerQ, setCustomerQ] = useState("");
@@ -883,7 +909,9 @@ export default function KeuanganPage() {
   const [editEntry, setEditEntry] = useState(null); // catatan manual yang sedang diubah
   const [semuaOpen, setSemuaOpen] = useState(false);
 
-  const { report, loading, error, reload } = useFinanceReport(tab, isoDate(currentDate));
+  const { report, loading, error, reload } = useFinanceReport(tab, isoDate(currentDate), rangeStart, rangeEnd);
+  // Rincian & grafik per minggu (bulanan, atau rentang > 31 hari) atau per hari
+  const perWeek = report?.period?.breakdown ? report.period.breakdown === "week" : tab === "bulanan";
   const { categories: cashCategories, setCategories: setCashCategories } = useFinanceCategories();
   const { types: cashTypes, setTypes: setCashTypes } = useFinanceTypes();
 
@@ -911,6 +939,7 @@ export default function KeuanganPage() {
   // ── date ranges ─────────────────────────────────────────────────────────
 
   const { startDate, endDate } = useMemo(() => {
+    if (tab === "rentang") return { startDate: rangeStart, endDate: rangeEnd };
     if (tab === "harian") {
       const iso = isoDate(currentDate);
       return { startDate: iso, endDate: iso };
@@ -923,7 +952,7 @@ export default function KeuanganPage() {
     // bulanan
     const { start, end } = getMonthRange(currentDate);
     return { startDate: isoDate(start), endDate: isoDate(end) };
-  }, [tab, currentDate]);
+  }, [tab, currentDate, rangeStart, rangeEnd]);
 
   // ── stats (dihitung backend: FinanceService) ─────────────────────────────
 
@@ -950,9 +979,35 @@ export default function KeuanganPage() {
   // ── date navigation ──────────────────────────────────────────────────────
 
   function navigate(dir) {
-    if (tab === "harian") setCurrentDate((d) => addDays(d, dir));
+    if (tab === "rentang") {
+      // Geser rentang sepanjang dirinya sendiri, mis. 7 hari -> 7 hari sebelumnya / sesudahnya
+      const days = Math.round((toDate(rangeEnd) - toDate(rangeStart)) / 86400000) + 1;
+      setRangeStart(isoDate(addDays(toDate(rangeStart), dir * days)));
+      setRangeEnd(isoDate(addDays(toDate(rangeEnd), dir * days)));
+    } else if (tab === "harian") setCurrentDate((d) => addDays(d, dir));
     else if (tab === "mingguan") setCurrentDate((d) => addDays(d, dir * 7));
     else setCurrentDate((d) => new Date(d.getFullYear(), d.getMonth() + dir, 1));
+  }
+
+  // Pindah ke tab Rentang: mulai dari periode yang sedang dilihat
+  function chooseTab(t) {
+    if (t === "rentang" && tab !== "rentang") {
+      setRangeStart(startDate);
+      setRangeEnd(endDate);
+    }
+    setTab(t);
+  }
+
+  // Tanggal awal tidak boleh melewati tanggal akhir (dan sebaliknya): ujung lainnya ikut digeser
+  function changeRangeStart(v) {
+    if (!v) return;
+    setRangeStart(v);
+    if (v > rangeEnd) setRangeEnd(v);
+  }
+  function changeRangeEnd(v) {
+    if (!v) return;
+    setRangeEnd(v);
+    if (v < rangeStart) setRangeStart(v);
   }
 
   const dateLabel = useMemo(() => {
@@ -967,7 +1022,7 @@ export default function KeuanganPage() {
     () =>
       (report?.breakdown ?? []).map((b) => ({
         iso: b.start,
-        label: tab === "bulanan"
+        label: perWeek
           ? `${b.label} · ${formatShortDate(toDate(b.start)).replace(/\s\d{4}$/, "")} - ${formatShortDate(toDate(b.end))}`
           : formatShortDate(toDate(b.start)),
         penjualan: b.penjualan,
@@ -976,7 +1031,7 @@ export default function KeuanganPage() {
         labaUsaha: b.laba_usaha,
         hasData: b.has_data,
       })),
-    [report, tab]
+    [report, perWeek]
   );
 
   // ── operational costs for current period ─────────────────────────────────
@@ -994,6 +1049,9 @@ export default function KeuanganPage() {
 
   // ── the "week" range label ────────────────────────────────────────────────
   const rangeLabel = useMemo(() => {
+    if (tab === "rentang") {
+      return startDate === endDate ? formatShortDate(toDate(startDate)) : `${formatShortDate(toDate(startDate))} - ${formatShortDate(toDate(endDate))}`;
+    }
     if (tab === "harian") return formatShortDate(toDate(startDate));
     if (tab === "mingguan") {
       const prefix = selectedWeekNo > 0 ? `Minggu ${selectedWeekNo} · ` : "";
@@ -1013,16 +1071,31 @@ export default function KeuanganPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Date nav */}
+          {/* Date nav: panah geser periode; klik tanggal membuka kalender */}
           <div className="flex items-center gap-1 rounded-lg border border-neutral-200 bg-white px-2 py-1.5">
-            <button type="button" onClick={() => navigate(-1)} className="flex h-6 w-6 items-center justify-center rounded text-neutral-500 hover:bg-neutral-100">
+            <button type="button" aria-label="Periode sebelumnya" onClick={() => navigate(-1)} className="flex h-6 w-6 items-center justify-center rounded text-neutral-500 hover:bg-neutral-100">
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
-            <button type="button" className="flex items-center gap-1.5 px-2 text-xs font-semibold text-neutral-700">
-              <Calendar className="h-3 w-3 text-neutral-400" />
-              {dateLabel}
-            </button>
-            <button type="button" onClick={() => navigate(1)} className="flex h-6 w-6 items-center justify-center rounded text-neutral-500 hover:bg-neutral-100">
+            {tab === "rentang" ? (
+              <div className="flex items-center gap-1">
+                <DatePickerLabel label="Dari tanggal" value={rangeStart} onChange={changeRangeStart}>
+                  {formatShortDate(toDate(rangeStart))}
+                </DatePickerLabel>
+                <span className="text-[11px] text-neutral-400">s/d</span>
+                <DatePickerLabel label="Sampai tanggal" value={rangeEnd} onChange={changeRangeEnd} withIcon={false}>
+                  {formatShortDate(toDate(rangeEnd))}
+                </DatePickerLabel>
+              </div>
+            ) : (
+              <DatePickerLabel
+                label={tab === "bulanan" ? "Pilih bulan (klik tanggal mana saja di bulan itu)" : tab === "mingguan" ? "Pilih minggu (klik tanggal mana saja di minggu itu)" : "Pilih tanggal"}
+                value={isoDate(currentDate)}
+                onChange={(v) => v && setCurrentDate(toDate(v))}
+              >
+                {dateLabel}
+              </DatePickerLabel>
+            )}
+            <button type="button" aria-label="Periode berikutnya" onClick={() => navigate(1)} className="flex h-6 w-6 items-center justify-center rounded text-neutral-500 hover:bg-neutral-100">
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -1043,17 +1116,17 @@ export default function KeuanganPage() {
 
       {/* Tab bar */}
       <div className="mt-4 flex gap-0 rounded-lg bg-neutral-100 p-1 w-fit">
-        {["harian", "mingguan", "bulanan"].map((t) => (
+        {["harian", "mingguan", "bulanan", "rentang"].map((t) => (
           <button
             key={t}
             type="button"
-            onClick={() => setTab(t)}
+            onClick={() => chooseTab(t)}
             className={cn(
               "rounded-md px-4 py-1.5 text-xs font-semibold capitalize transition-colors",
               tab === t ? "bg-white text-neutral-900 shadow-sm" : "text-neutral-500 hover:text-neutral-700"
             )}
           >
-            {t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === "rentang" ? "Custom" : t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
@@ -1128,7 +1201,7 @@ export default function KeuanganPage() {
       </div>
 
       {/* Grafik */}
-      <FinanceCharts charts={report?.charts} tab={tab} loading={loading} />
+      <FinanceCharts charts={report?.charts} tab={tab} perWeek={perWeek} loading={loading} />
 
       {/* Two column: Laba Rugi + Arus Kas */}
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -1250,7 +1323,7 @@ export default function KeuanganPage() {
       {/* Rincian harian table */}
       <Card className="mt-4 p-0">
         <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-100">
-          <h2 className="text-sm font-bold text-neutral-900">Rincian {tab === "mingguan" ? "harian" : tab === "harian" ? "harian" : "per periode"}</h2>
+          <h2 className="text-sm font-bold text-neutral-900">Rincian {perWeek ? "per minggu" : "harian"}</h2>
           <span className="text-[11px] text-neutral-400">{rangeLabel}</span>
         </div>
         <div className="overflow-x-auto">
@@ -1296,7 +1369,7 @@ export default function KeuanganPage() {
           </table>
         </div>
         <p className="px-5 py-2 text-[11px] text-neutral-400">
-          * {tab === "bulanan" ? "Minggu" : "Hari"} tanpa transaksi tidak ditampilkan.
+          * {perWeek ? "Minggu" : "Hari"} tanpa transaksi tidak ditampilkan.
         </p>
       </Card>
 
