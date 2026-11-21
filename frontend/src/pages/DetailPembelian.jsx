@@ -12,7 +12,6 @@ import {
   formatDateShort,
   formatTime,
   lastPaymentDate,
-  locationLabel,
   methodLabel,
   paymentPill,
   purchaseDebt,
@@ -132,7 +131,7 @@ function DetailContent({ purchase }) {
             </div>
             <div>
               <p className="text-neutral-500">Lokasi penerimaan</p>
-              <p className="mt-1.5 font-semibold text-neutral-900">{locationLabel(purchase.location)}</p>
+              <p className="mt-1.5 font-semibold text-neutral-900">{purchase.locationName}</p>
             </div>
             <div>
               <p className="text-neutral-500">Jatuh tempo</p>

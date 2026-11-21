@@ -207,6 +207,58 @@ class PurchaseTest extends TestCase
             ->assertUnprocessable()->assertJsonPath('errors.due_date.0', 'Jatuh tempo tidak boleh sebelum tanggal pembelian');
     }
 
+    public function test_purchase_no_is_generated_when_empty(): void
+    {
+        $this->actingAs($this->admin);
+        $date = '2031-07-09'; // tanggal jauh agar tidak bentrok dengan data asli
+
+        $first = $this->postJson('/api/purchases', $this->payload(['purchase_no' => '', 'purchase_date' => $date, 'due_date' => null]))
+            ->assertCreated()->json('data.purchase_no');
+        $second = $this->postJson('/api/purchases', $this->payload(['purchase_no' => null, 'purchase_date' => $date, 'due_date' => null]))
+            ->assertCreated()->json('data.purchase_no');
+
+        $this->assertSame('PB-090731-001', $first);
+        $this->assertSame('PB-090731-002', $second);
+
+        // Nomor dari pemasok tetap dipakai apa adanya
+        $this->postJson('/api/purchases', $this->payload(['purchase_no' => ' SJ-77 ', 'purchase_date' => $date, 'due_date' => null]))
+            ->assertCreated()->assertJsonPath('data.purchase_no', 'SJ-77');
+    }
+
+    public function test_location_management(): void
+    {
+        $this->actingAs($this->admin);
+        $this->actingAs($this->kasir)->getJson('/api/purchase-locations')->assertForbidden();
+        $this->actingAs($this->admin);
+
+        $name = 'Gudang Belakang '.uniqid();
+        $loc = $this->postJson('/api/purchase-locations', ['name' => "  {$name} "])
+            ->assertCreated()->assertJsonPath('data.name', $name)->json('data');
+        $this->assertMatchesRegularExpression('/^gudang_belakang_/', $loc['code']);
+
+        $this->postJson('/api/purchase-locations', ['name' => strtoupper($name)])
+            ->assertUnprocessable()->assertJsonPath('errors.name.0', 'Lokasi sudah ada');
+
+        // Pembelian memakai lokasi baru; nama tampil lewat location_name
+        $pid = $this->postJson('/api/purchases', $this->payload(['location' => $loc['code']]))
+            ->assertCreated()->assertJsonPath('data.location_name', $name)->json('data.id');
+
+        // Ganti nama: kode tetap, faktur lama ikut menampilkan nama baru
+        $this->putJson("/api/purchase-locations/{$loc['id']}", ['name' => "{$name} Baru"])
+            ->assertOk()->assertJsonPath('data.code', $loc['code'])->assertJsonPath('data.purchase_count', 1);
+        $this->getJson("/api/purchases/{$pid}")->assertJsonPath('data.location_name', "{$name} Baru");
+
+        // Masih dipakai faktur: tidak bisa dihapus
+        $this->deleteJson("/api/purchase-locations/{$loc['id']}")->assertStatus(409);
+
+        $unused = $this->postJson('/api/purchase-locations', ['name' => 'Kosong '.uniqid()])->json('data.id');
+        $this->deleteJson("/api/purchase-locations/{$unused}")->assertOk();
+        $this->assertDatabaseMissing('purchase_locations', ['id' => $unused]);
+
+        $this->postJson('/api/purchases', $this->payload(['location' => 'tidak_ada']))
+            ->assertUnprocessable()->assertJsonPath('errors.location.0', 'Lokasi penerimaan tidak ditemukan');
+    }
+
     public function test_supplier_crud(): void
     {
         $this->actingAs($this->admin);

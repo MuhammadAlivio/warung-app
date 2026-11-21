@@ -39,6 +39,9 @@ const Input = forwardRef(function Input(
         <p id={errorId} role="alert" className="mt-1.5 text-xs text-red-600">
           {error}
         </p>
+      ) : typeof hint === "string" ? (
+        // Teks biasa diberi gaya petunjuk standar; elemen (mis. <p> bergaya sendiri) ditampilkan apa adanya
+        <p className="mt-1.5 text-xs text-neutral-500">{hint}</p>
       ) : (
         hint
       )}

@@ -1,11 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Info, PackagePlus, Plus, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Info, PackagePlus, Pencil, Plus, Search, Settings2, Trash2 } from "lucide-react";
 import AdminShell from "../lib/components/layout/AdminShell";
 import { Button, Card, Checkbox, Input, Select, Textarea } from "../lib/components/ui";
 import StockFormModal, { toFormProblem } from "../lib/components/stock/StockFormModal";
 import SupplierFormModal from "../lib/components/purchase/SupplierFormModal";
-import { LOCATIONS, PAYMENT_METHODS, PILL_CLASS, formatDateShort, qtyText, unitOf } from "../lib/utils/purchase";
+import LocationManagerModal from "../lib/components/purchase/LocationManagerModal";
+import { PAYMENT_METHODS, PILL_CLASS, formatDateShort, qtyText, unitOf } from "../lib/utils/purchase";
 import { formatRupiah } from "../lib/utils/format";
 import { cn } from "../lib/utils/cn";
 import { usePurchase } from "../lib/stores/PurchaseContext";
@@ -30,11 +31,12 @@ const FIELD_LABEL = {
 
 export default function BuatPembelian() {
   const navigate = useNavigate();
-  const { addPurchase, suppliers, addSupplier } = usePurchase();
+  const { addPurchase, suppliers, addSupplier, updateSupplier, locations } = usePurchase();
   const { products, addProduct } = useStock();
   const supplierOptions = suppliers.map((s) => ({ value: String(s.id), label: s.name }));
+  const locationOptions = locations.map((l) => ({ value: l.code, label: l.name }));
   const today = localDate();
-  const [modal, setModal] = useState(null); // "supplier" | "product" | null
+  const [modal, setModal] = useState(null); // "supplier" | "editSupplier" | "product" | "locations" | null
   const [receiveAll, setReceiveAll] = useState(false);
   const [error, setError] = useState("");
 
@@ -42,7 +44,14 @@ export default function BuatPembelian() {
   const [supplierId, setSupplierId] = useState("");
   const [invoiceNo, setInvoiceNo] = useState("");
   const [date, setDate] = useState(today);
-  const [location, setLocation] = useState("gudang_utama");
+  const [location, setLocation] = useState("");
+  const selectedSupplier = suppliers.find((s) => String(s.id) === supplierId) ?? null;
+  const locationName = locations.find((l) => l.code === location)?.name ?? location;
+
+  // Lokasi default = lokasi pertama di daftar; ganti jika lokasi terpilih dihapus
+  useEffect(() => {
+    if (locations.length && !locations.some((l) => l.code === location)) setLocation(locations[0].code);
+  }, [locations, location]);
   const [items, setItems] = useState([]);
   const [notes, setNotes] = useState("");
   const [productSearch, setProductSearch] = useState("");
@@ -84,7 +93,8 @@ export default function BuatPembelian() {
   const payment = Math.min(total, Number(initialPayment) || 0);
   const sisaUtang = total - payment;
 
-  const canSave = supplierId && invoiceNo.trim() && date && dueDate && items.length > 0 && items.every((i) => i.qty > 0 && i.buyPrice > 0);
+  // Nomor faktur opsional: kosong = dibuat otomatis oleh sistem (PB-YYMMDD-NNN)
+  const canSave = supplierId && location && date && dueDate && items.length > 0 && items.every((i) => i.qty > 0 && i.buyPrice > 0);
 
   const totalQty = items.reduce((s, i) => s + i.qty, 0);
   const unit = unitOf(items);
@@ -96,7 +106,7 @@ export default function BuatPembelian() {
     try {
       const p = await addPurchase({
         supplier_id: Number(supplierId),
-        purchase_no: invoiceNo.trim(),
+        purchase_no: invoiceNo.trim() || null,
         purchase_date: date,
         due_date: dueDate,
         location,
@@ -129,6 +139,11 @@ export default function BuatPembelian() {
   const saveSupplier = async (values) => {
     const s = await addSupplier(values);
     setSupplierId(String(s.id));
+    setModal(null);
+  };
+
+  const saveEditedSupplier = async (values) => {
+    await updateSupplier(selectedSupplier.id, values);
     setModal(null);
   };
 
@@ -171,17 +186,29 @@ export default function BuatPembelian() {
                     value={supplierId}
                     onChange={(e) => setSupplierId(e.target.value)}
                   />
-                  <button
-                    type="button"
-                    onClick={() => setModal("supplier")}
-                    className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-brand-700 hover:underline"
-                  >
-                    <Plus className="h-3 w-3" aria-hidden /> Pemasok baru
-                  </button>
+                  <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+                    <button
+                      type="button"
+                      onClick={() => setModal("supplier")}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-700 hover:underline"
+                    >
+                      <Plus className="h-3 w-3" aria-hidden /> Pemasok baru
+                    </button>
+                    {selectedSupplier && (
+                      <button
+                        type="button"
+                        onClick={() => setModal("editSupplier")}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-700 hover:underline"
+                      >
+                        <Pencil className="h-3 w-3" aria-hidden /> Edit pemasok
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <Input
-                  label="Nomor faktur pemasok *"
-                  placeholder="INV-SJ-1016"
+                  label="Nomor faktur pemasok (opsional)"
+                  placeholder="Kosongkan untuk nomor otomatis"
+                  hint="Isi sesuai kertas faktur pemasok jika ada."
                   value={invoiceNo}
                   onChange={(e) => setInvoiceNo(e.target.value)}
                 />
@@ -198,15 +225,26 @@ export default function BuatPembelian() {
                     />
                   </div>
                 </div>
-                <Select
-                  label="Lokasi penerimaan *"
-                  options={LOCATIONS}
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                />
+                <div>
+                  <Select
+                    label="Lokasi penerimaan *"
+                    placeholder={locations.length ? undefined : "Belum ada lokasi"}
+                    options={locationOptions}
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setModal("locations")}
+                    className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-brand-700 hover:underline"
+                  >
+                    <Settings2 className="h-3 w-3" aria-hidden /> Kelola lokasi
+                  </button>
+                </div>
               </div>
               <p className="mt-3 text-[11px] text-neutral-400">
-                Nomor faktur digunakan untuk mencocokkan pembelian dengan tagihan pemasok.
+                Jika nomor faktur dikosongkan, sistem membuat nomor otomatis (mis. PB-{localDate().slice(8, 10)}
+                {localDate().slice(5, 7)}{localDate().slice(2, 4)}-001).
               </p>
             </Card>
 
@@ -459,7 +497,7 @@ export default function BuatPembelian() {
                 <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
                 <span>
                   {receiveAll
-                    ? `Stok bertambah +${qtyText(totalQty, unit)} ke ${LOCATIONS.find((l) => l.value === location)?.label ?? location} saat pembelian disimpan.`
+                    ? `Stok bertambah +${qtyText(totalQty, unit)} ke ${locationName} saat pembelian disimpan.`
                     : "Stok belum bertambah saat pembelian disimpan. Stok bertambah otomatis saat barang diterima."}
                 </span>
               </div>
@@ -519,6 +557,13 @@ export default function BuatPembelian() {
       </div>
 
       <SupplierFormModal open={modal === "supplier"} onSave={saveSupplier} onClose={() => setModal(null)} />
+      <SupplierFormModal
+        open={modal === "editSupplier" && !!selectedSupplier}
+        supplier={selectedSupplier}
+        onSave={saveEditedSupplier}
+        onClose={() => setModal(null)}
+      />
+      <LocationManagerModal open={modal === "locations"} onClose={() => setModal(null)} onAdded={(l) => setLocation(l.code)} />
       <StockFormModal open={modal === "product"} lockStock onSave={saveNewProduct} onClose={() => setModal(null)} />
     </AdminShell>
   );

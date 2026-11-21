@@ -13,13 +13,20 @@ const supplierSchema = z.object({
   address: z.string().trim().max(200, "Alamat maksimal 200 karakter"),
 });
 
-function SupplierFormBody({ onSave, onClose }) {
+function SupplierFormBody({ supplier, onSave, onClose }) {
   const {
     register,
     handleSubmit,
     setError,
     formState: { errors, isSubmitting },
-  } = useForm({ resolver: zodResolver(supplierSchema), defaultValues: { name: "", phone: "", address: "" } });
+  } = useForm({
+    resolver: zodResolver(supplierSchema),
+    defaultValues: {
+      name: supplier?.name ?? "",
+      phone: supplier?.phone ?? "",
+      address: supplier?.address ?? "",
+    },
+  });
 
   const submit = async (values) => {
     try {
@@ -42,24 +49,35 @@ function SupplierFormBody({ onSave, onClose }) {
         <Input label="Nama pemasok *" placeholder="CV Pakan Makmur" error={errors.name?.message} {...register("name")} />
         <Input label="Nomor telepon" placeholder="0812 3456 7890" error={errors.phone?.message} {...register("phone")} />
         <Textarea label="Alamat" placeholder="Jl. Raya No. 1, Bandung" rows={2} error={errors.address?.message} {...register("address")} />
+        {supplier && (
+          <p className="text-[11px] text-neutral-500">Perubahan nama ikut tampil di semua faktur dari pemasok ini.</p>
+        )}
       </ModalBody>
       <ModalFooter className="justify-end">
         <Button variant="outline" size="sm" fullWidth={false} onClick={onClose} disabled={isSubmitting}>
           Batal
         </Button>
         <Button type="submit" size="sm" fullWidth={false} loading={isSubmitting}>
-          Simpan pemasok
+          {supplier ? "Simpan perubahan" : "Simpan pemasok"}
         </Button>
       </ModalFooter>
     </form>
   );
 }
 
-/** Tambah pemasok baru langsung dari form Buat Pembelian. onSave async; error validasi tampil per field. */
-export default function SupplierFormModal({ open, onSave, onClose }) {
+/**
+ * Tambah pemasok baru, atau edit data pemasok jika `supplier` diisi.
+ * onSave async; error validasi dari server tampil per field.
+ */
+export default function SupplierFormModal({ open, supplier = null, onSave, onClose }) {
   return (
-    <Modal open={open} onClose={onClose} title="Pemasok baru" description="Tambahkan pemasok untuk dicatat di faktur pembelian.">
-      {open && <SupplierFormBody onSave={onSave} onClose={onClose} />}
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={supplier ? "Edit pemasok" : "Pemasok baru"}
+      description={supplier ? "Ubah nama, nomor telepon, atau alamat pemasok." : "Tambahkan pemasok untuk dicatat di faktur pembelian."}
+    >
+      {open && <SupplierFormBody key={supplier?.id ?? "new"} supplier={supplier} onSave={onSave} onClose={onClose} />}
     </Modal>
   );
 }

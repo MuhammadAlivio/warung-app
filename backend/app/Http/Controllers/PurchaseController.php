@@ -37,10 +37,11 @@ class PurchaseController extends Controller
     {
         $data = $request->validate([
             'supplier_id' => ['required', 'integer', 'exists:suppliers,id'],
-            'purchase_no' => ['required', 'string', 'max:40'],
+            // Opsional: nomor dari kertas faktur pemasok; kosong = dibuat otomatis PB-YYMMDD-NNN
+            'purchase_no' => ['nullable', 'string', 'max:40'],
             'purchase_date' => ['required', 'date_format:Y-m-d'],
             'due_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:purchase_date'],
-            'location' => ['required', Rule::in(Purchase::LOCATIONS)],
+            'location' => ['required', 'string', 'exists:purchase_locations,code'],
             'notes' => ['nullable', 'string', 'max:500'],
             'items' => ['required', 'array', 'min:1', 'max:200'],
             'items.*.product_id' => ['required', 'integer', 'distinct'],
@@ -52,11 +53,11 @@ class PurchaseController extends Controller
         ], [
             'supplier_id.required' => 'Pilih pemasok',
             'supplier_id.exists' => 'Pemasok tidak ditemukan',
-            'purchase_no.required' => 'Nomor faktur wajib diisi',
             'purchase_no.max' => 'Nomor faktur maksimal 40 karakter',
             'purchase_date.required' => 'Tanggal pembelian wajib diisi',
             'due_date.after_or_equal' => 'Jatuh tempo tidak boleh sebelum tanggal pembelian',
-            'location.in' => 'Pilih lokasi penerimaan',
+            'location.required' => 'Pilih lokasi penerimaan',
+            'location.exists' => 'Lokasi penerimaan tidak ditemukan',
             'items.required' => 'Tambahkan minimal satu barang',
             'items.min' => 'Tambahkan minimal satu barang',
             'items.*.product_id.distinct' => 'Barang yang sama tidak boleh ditambahkan dua kali',
@@ -68,8 +69,8 @@ class PurchaseController extends Controller
             'payment_method.in' => 'Pilih metode pembayaran',
         ]);
 
-        $data['purchase_no'] = trim($data['purchase_no']);
-        if (Purchase::whereRaw('lower(purchase_no) = ?', [mb_strtolower($data['purchase_no'])])->exists()) {
+        $data['purchase_no'] = trim($data['purchase_no'] ?? '') ?: null;
+        if ($data['purchase_no'] && Purchase::whereRaw('lower(purchase_no) = ?', [mb_strtolower($data['purchase_no'])])->exists()) {
             return response()->json([
                 'message' => 'Nomor faktur sudah dipakai',
                 'errors' => ['purchase_no' => ['Nomor faktur sudah dipakai']],

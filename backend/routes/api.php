@@ -9,6 +9,7 @@ use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\FinanceController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\PurchaseController;
+use App\Http\Controllers\PurchaseLocationController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\StoreProfileController;
 use App\Http\Controllers\SupplierController;
@@ -66,6 +67,8 @@ Route::middleware(['auth:sanctum', EnsureActive::class, LogActivity::class])->gr
 
         // Pembelian & Barang Masuk: kasir tidak punya akses sama sekali (keputusan tim 4 Nov 2026)
         Route::apiResource('suppliers', SupplierController::class)->only(['index', 'store', 'update']);
+        Route::apiResource('purchase-locations', PurchaseLocationController::class)->except('show')
+            ->parameters(['purchase-locations' => 'location']);
         Route::get('/purchases', [PurchaseController::class, 'index']);
         Route::post('/purchases', [PurchaseController::class, 'store']);
         Route::get('/purchases/{purchase}', [PurchaseController::class, 'show'])->whereNumber('purchase');

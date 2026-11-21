@@ -8,7 +8,6 @@ import { formatRupiah } from "../lib/utils/format";
 import {
   PILL_CLASS,
   formatDateShort,
-  locationLabel,
   purchaseDebt,
   purchasePaid,
   purchaseQty,
@@ -161,7 +160,7 @@ function TerimaForm({ purchase }) {
               <span className={PILL_CLASS[receipt.tone]}>{receipt.label}</span>
             </div>
             <p className="mt-2 text-[11px] text-neutral-500">
-              Dipesan {formatDateShort(purchase.date)} · {locationLabel(purchase.location)}
+              Dipesan {formatDateShort(purchase.date)} · {purchase.locationName}
               {lastReception && ` · Penerimaan terakhir #${lastReception.receptionNo}`}
             </p>
           </div>
@@ -349,7 +348,7 @@ function TerimaForm({ purchase }) {
               <div className="mt-4 flex items-start gap-2 rounded-lg bg-brand-50 px-3 py-2.5 text-xs text-brand-700">
                 <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
                 <span>
-                  Stok {locationLabel(purchase.location)} bertambah +{qtyText(totalNow, unit)}.
+                  Stok {purchase.locationName} bertambah +{qtyText(totalNow, unit)}.
                   {afterRemaining > 0 && ` Sisa ${qtyText(afterRemaining, unit)} tetap menunggu penerimaan berikutnya.`}
                 </span>
               </div>
@@ -391,7 +390,7 @@ function TerimaForm({ purchase }) {
             <PackageCheck className="h-4 w-4 text-brand-700" aria-hidden />
             <div>
               <p className="text-xs font-semibold text-neutral-900">
-                Terima {qtyText(totalNow, unit)} ke {locationLabel(purchase.location)}
+                Terima {qtyText(totalNow, unit)} ke {purchase.locationName}
               </p>
               <p className="text-[11px] text-neutral-500">
                 Sisa {qtyText(afterRemaining, unit)} belum diterima. Periksa jumlah sebelum menyimpan.

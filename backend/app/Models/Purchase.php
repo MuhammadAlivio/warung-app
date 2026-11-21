@@ -19,8 +19,6 @@ class Purchase extends Model
 {
     public const TIMEZONE = 'Asia/Jakarta';
 
-    public const LOCATIONS = ['gudang_utama', 'toko', 'gudang_b'];
-
     public const PAYMENT_METHODS = ['transfer_bank', 'tunai', 'cek'];
 
     protected function casts(): array
@@ -43,6 +41,12 @@ class Purchase extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** Lokasi penerimaan (purchases.location = purchase_locations.code). */
+    public function locationRef(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseLocation::class, 'location', 'code');
     }
 
     public function items(): HasMany
@@ -100,7 +104,7 @@ class Purchase extends Model
     }
 
     /** Relasi yang dibutuhkan toApi(). */
-    public const API_WITH = ['supplier', 'user:id,name', 'items.product:id,sku', 'payments.user:id,name', 'receipts.items', 'receipts.receiver:id,name'];
+    public const API_WITH = ['supplier', 'locationRef', 'user:id,name', 'items.product:id,sku', 'payments.user:id,name', 'receipts.items', 'receipts.receiver:id,name'];
 
     public function toApi(): array
     {
@@ -114,6 +118,7 @@ class Purchase extends Model
             'purchase_date' => $this->purchase_date?->toDateString(),
             'due_date' => $this->due_date?->toDateString(),
             'location' => $this->location,
+            'location_name' => $this->locationRef?->name ?? $this->location,
             'status' => $this->status,
             'payment_status' => $this->paymentStatus(),
             'subtotal' => $this->subtotal,

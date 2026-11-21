@@ -4,7 +4,7 @@ import { ChevronDown, PackageCheck, Plus, Search, Info } from "lucide-react";
 import AdminShell from "../lib/components/layout/AdminShell";
 import { Button, Card } from "../lib/components/ui";
 import PaymentModal from "../lib/components/purchase/PaymentModal";
-import PeriodFilter, { ALL_PERIOD, currentMonth, defaultPeriod, inPeriod } from "../lib/components/purchase/PeriodFilter";
+import PeriodFilter, { currentMonth, defaultPeriod, inPeriod } from "../lib/components/purchase/PeriodFilter";
 import { cn } from "../lib/utils/cn";
 import { formatRupiah } from "../lib/utils/format";
 import {
@@ -13,7 +13,6 @@ import {
   formatDateLong,
   formatDateShort,
   lastPaymentDate,
-  locationLabel,
   paymentPill,
   purchaseDebt,
   purchasePaid,
@@ -29,6 +28,7 @@ import { usePurchase } from "../lib/stores/PurchaseContext";
 
 const TH = "px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500";
 const MONO = "font-mono tabular-nums";
+const PREVIEW_COUNT = 5;
 
 function SummaryCard({ label, value, hint }) {
   return (
@@ -48,6 +48,7 @@ export default function PembelianBarangMasuk() {
   const [status, setStatus] = useState("");
   const [period, setPeriod] = useState(defaultPeriod);
   const [selectedId, setSelectedId] = useState(null);
+  const [showAll, setShowAll] = useState(false);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -61,6 +62,9 @@ export default function PembelianBarangMasuk() {
     });
   }, [purchases, query, status, period]);
 
+  // Daftar awal hanya 5 faktur terbaru (data sudah urut terbaru dari backend); "Lihat semua" menampilkan seluruhnya
+  const visible = showAll ? filtered : filtered.slice(0, PREVIEW_COUNT);
+  const hiddenCount = filtered.length - visible.length;
   const selected = filtered.find((p) => p.id === selectedId) ?? filtered[0] ?? null;
   const S = useMemo(() => purchaseSummary(purchases, currentMonth()), [purchases]);
 
@@ -119,17 +123,11 @@ export default function PembelianBarangMasuk() {
         <Card className="min-w-0 p-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-neutral-900">Faktur pembelian</h2>
-            <button
-              type="button"
-              onClick={() => {
-                setQuery("");
-                setStatus("");
-                setPeriod(ALL_PERIOD);
-              }}
-              className="text-[11px] font-semibold text-brand-700 hover:underline"
-            >
-              Lihat semua faktur →
-            </button>
+            <span className="text-[11px] text-neutral-500">
+              {filtered.length > PREVIEW_COUNT && !showAll
+                ? `${PREVIEW_COUNT} terbaru dari ${filtered.length} faktur`
+                : `${filtered.length} faktur`}
+            </span>
           </div>
 
           <div className="mb-4 flex flex-wrap gap-2">
@@ -206,7 +204,7 @@ export default function PembelianBarangMasuk() {
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((p) => {
+                  visible.map((p) => {
                     const receipt = receiptPill(p, { short: true });
                     const pay = paymentPill(p);
                     const active = selected?.id === p.id;
@@ -247,6 +245,17 @@ export default function PembelianBarangMasuk() {
               </tbody>
             </table>
           </div>
+
+          {(hiddenCount > 0 || (showAll && filtered.length > PREVIEW_COUNT)) && (
+            <button
+              type="button"
+              onClick={() => setShowAll((v) => !v)}
+              aria-expanded={showAll}
+              className="mt-3 w-full rounded-lg border border-neutral-200 py-2 text-xs font-semibold text-brand-700 transition-colors hover:bg-brand-50"
+            >
+              {showAll ? "Tampilkan lebih sedikit" : `Lihat semua faktur (${filtered.length}) →`}
+            </button>
+          )}
         </Card>
 
         {/* Detail faktur terpilih */}
@@ -285,7 +294,7 @@ function SelectedInvoice({ purchase: p, navigate, addPayment }) {
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className={PILL_CLASS[receipt.tone]}>{receipt.label}</span>
           <span className="text-[11px] text-neutral-500">
-            {locationLabel(p.location)} · Dipesan {formatDateLong(p.date)}
+            {p.locationName} · Dipesan {formatDateLong(p.date)}
           </span>
         </div>
 

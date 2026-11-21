@@ -14,6 +14,7 @@ const fromApi = (p) => ({
   date: p.purchase_date,
   dueDate: p.due_date,
   location: p.location,
+  locationName: p.location_name ?? p.location,
   status: p.status,
   paymentStatus: p.payment_status,
   total: p.total,
@@ -61,6 +62,7 @@ export function PurchaseProvider({ children }) {
 
   const [purchases, setPurchases] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(false);
   // false sampai pemuatan pertama selesai: halaman detail tidak mengalihkan ke daftar sebelum data ada
   const [loaded, setLoaded] = useState(false);
@@ -70,9 +72,10 @@ export function PurchaseProvider({ children }) {
     setLoading(true);
     setError("");
     try {
-      const [p, s] = await Promise.all([api("/api/purchases"), api("/api/suppliers")]);
+      const [p, s, l] = await Promise.all([api("/api/purchases"), api("/api/suppliers"), api("/api/purchase-locations")]);
       setPurchases(p.data.map(fromApi));
       setSuppliers(s.data);
+      setLocations(l.data);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -85,6 +88,7 @@ export function PurchaseProvider({ children }) {
     if (!isAdmin) {
       setPurchases([]);
       setSuppliers([]);
+      setLocations([]);
       setLoaded(false);
       return;
     }
@@ -131,11 +135,41 @@ export function PurchaseProvider({ children }) {
     return s;
   }, []);
 
+  /** Ubah data pemasok; nama di daftar faktur ikut diperbarui. */
+  const updateSupplier = useCallback(async (id, data) => {
+    const s = (await api(`/api/suppliers/${id}`, { method: "PUT", body: data })).data;
+    setSuppliers((prev) => prev.map((x) => (x.id === id ? s : x)).sort((a, b) => a.name.localeCompare(b.name)));
+    setPurchases((prev) => prev.map((p) => (p.supplierId === id ? { ...p, supplierName: s.name } : p)));
+    return s;
+  }, []);
+
+  // Daftar lokasi penerimaan. Faktur menyimpan kode lokasi, jadi ganti nama cukup memperbarui tampilan.
+  const addLocation = useCallback(async (name) => {
+    const l = (await api("/api/purchase-locations", { method: "POST", body: { name } })).data;
+    setLocations((prev) => [...prev, l]);
+    return l;
+  }, []);
+
+  const renameLocation = useCallback(async (id, name) => {
+    const l = (await api(`/api/purchase-locations/${id}`, { method: "PUT", body: { name } })).data;
+    setLocations((prev) => prev.map((x) => (x.id === id ? l : x)));
+    setPurchases((prev) => prev.map((p) => (p.location === l.code ? { ...p, locationName: l.name } : p)));
+  }, []);
+
+  const deleteLocation = useCallback(async (id) => {
+    await api(`/api/purchase-locations/${id}`, { method: "DELETE" });
+    setLocations((prev) => prev.filter((x) => x.id !== id));
+  }, []);
+
   const getPurchase = useCallback((id) => purchases.find((p) => String(p.id) === String(id)), [purchases]);
 
   const value = useMemo(
-    () => ({ purchases, suppliers, loading, loaded, error, reload, getPurchase, addPurchase, addPayment, receiveItems, addSupplier }),
-    [purchases, suppliers, loading, loaded, error, reload, getPurchase, addPurchase, addPayment, receiveItems, addSupplier],
+    () => ({
+      purchases, suppliers, locations, loading, loaded, error, reload, getPurchase,
+      addPurchase, addPayment, receiveItems, addSupplier, updateSupplier, addLocation, renameLocation, deleteLocation,
+    }),
+    [purchases, suppliers, locations, loading, loaded, error, reload, getPurchase,
+      addPurchase, addPayment, receiveItems, addSupplier, updateSupplier, addLocation, renameLocation, deleteLocation],
   );
 
   return <PurchaseCtx.Provider value={value}>{children}</PurchaseCtx.Provider>;

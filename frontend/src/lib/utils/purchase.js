@@ -21,11 +21,7 @@ export const PAYMENT_STATUS = {
 
 export const RECEIPT_STATUS_OPTIONS = Object.entries(RECEIPT_STATUS).map(([value, s]) => ({ value, label: s.label }));
 
-export const LOCATIONS = [
-  { value: "gudang_utama", label: "Gudang utama" },
-  { value: "toko", label: "Toko" },
-  { value: "gudang_b", label: "Gudang B" },
-];
+// Lokasi penerimaan dikelola admin di database (PurchaseContext.locations), nama tampil = purchase.locationName
 
 export const PAYMENT_METHODS = [
   { value: "transfer_bank", label: "Transfer bank" },
@@ -33,7 +29,6 @@ export const PAYMENT_METHODS = [
   { value: "cek", label: "Cek / Giro" },
 ];
 
-export const locationLabel = (v) => LOCATIONS.find((l) => l.value === v)?.label ?? v;
 export const methodLabel = (v) => PAYMENT_METHODS.find((m) => m.value === v)?.label ?? v;
 
 export const purchaseTotal = (p) => p.total;

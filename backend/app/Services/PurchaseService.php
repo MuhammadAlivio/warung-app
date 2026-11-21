@@ -60,7 +60,7 @@ class PurchaseService
             }
 
             $purchase = Purchase::create([
-                'purchase_no' => $data['purchase_no'],
+                'purchase_no' => ($data['purchase_no'] ?? null) ?: $this->nextPurchaseNo($data['purchase_date']),
                 'supplier_id' => $data['supplier_id'],
                 'user_id' => $user->id,
                 'purchase_date' => $data['purchase_date'],
@@ -216,6 +216,24 @@ class PurchaseService
         $purchase->forceFill(['status' => Purchase::statusFor($purchase->items)])->save();
 
         return $receipt;
+    }
+
+    /**
+     * Nomor faktur otomatis jika admin tidak mengisi nomor pemasok: PB-YYMMDD-NNN per tanggal pembelian
+     * (mis. PB-211126-001). Dikunci per transaksi agar dua pembelian bersamaan tidak dapat nomor sama.
+     */
+    public function nextPurchaseNo(string $purchaseDate): string
+    {
+        DB::select('select pg_advisory_xact_lock(hashtext(?))', ['purchases.purchase_no']);
+
+        $prefix = 'PB-'.CarbonImmutable::parse($purchaseDate)->format('dmy').'-';
+        $last = DB::table('purchases')
+            ->where('purchase_no', 'like', $prefix.'%')
+            ->whereRaw("purchase_no ~ '^PB-[0-9]{6}-[0-9]+$'")
+            ->selectRaw('max(cast(substring(purchase_no from 11) as integer)) as n')
+            ->value('n');
+
+        return $prefix.str_pad((string) (((int) $last) + 1), 3, '0', STR_PAD_LEFT);
     }
 
     /** BM-0001, BM-0002, ... Dikunci per transaksi agar dua penerimaan bersamaan tidak dapat nomor sama. */
