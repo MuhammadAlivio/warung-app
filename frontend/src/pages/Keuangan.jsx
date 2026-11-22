@@ -568,7 +568,8 @@ function UnduhModal({ open, onClose, defaultStart, defaultEnd }) {
     setDownloading(true);
     setError("");
     try {
-      await downloadFinanceReport({ start: startDate, end: endDate, format });
+      // Pilihan di modal "pdf" | "excel"; backend menerima "pdf" | "xlsx"
+      await downloadFinanceReport({ start: startDate, end: endDate, format: format === "excel" ? "xlsx" : format });
       onClose();
     } catch (err) {
       setError(err.message || "Laporan gagal dibuat. Coba lagi.");
