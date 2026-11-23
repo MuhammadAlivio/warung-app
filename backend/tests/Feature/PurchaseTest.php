@@ -259,6 +259,54 @@ class PurchaseTest extends TestCase
             ->assertUnprocessable()->assertJsonPath('errors.location.0', 'Lokasi penerimaan tidak ditemukan');
     }
 
+    public function test_cancel_purchase(): void
+    {
+        $this->actingAs($this->admin);
+        $date = '2031-08-14'; // tanggal jauh agar laporan keuangan tidak tercampur data asli
+        $p = $this->postJson('/api/purchases', $this->payload(['purchase_date' => $date, 'due_date' => null]))->json('data');
+
+        $financeRefs = fn () => collect($this->getJson("/api/finance/entries?start={$date}&end={$date}")->assertOk()->json('data'))
+            ->pluck('reference')->all();
+        $this->assertContains($p['purchase_no'], $financeRefs());
+
+        $this->postJson("/api/purchases/{$p['id']}/cancel", ['reason' => 'abc'])
+            ->assertUnprocessable()->assertJsonPath('errors.reason.0', 'Alasan pembatalan minimal 5 karakter');
+        $this->actingAs($this->kasir)->postJson("/api/purchases/{$p['id']}/cancel", ['reason' => 'Tidak jadi beli'])->assertForbidden();
+        $this->actingAs($this->admin);
+
+        $this->postJson("/api/purchases/{$p['id']}/cancel", ['reason' => ' Pemasok tidak punya stok '])
+            ->assertOk()
+            ->assertJsonPath('data.cancelled', true)
+            ->assertJsonPath('data.cancel_reason', 'Pemasok tidak punya stok')
+            ->assertJsonPath('data.cancelled_by', $this->admin->name)
+            ->assertJsonPath('data.debt', 0)
+            ->assertJsonPath('data.paid', 200000);
+
+        // Pembayaran dianggap dikembalikan: tidak lagi muncul di laporan Keuangan; stok tidak berubah
+        $this->assertNotContains($p['purchase_no'], $financeRefs());
+        $this->assertSame(0, $this->pakan->fresh()->stock);
+
+        // Faktur batal tidak bisa dibayar, diterima, atau dibatalkan lagi
+        $this->postJson("/api/purchases/{$p['id']}/payments", ['amount' => 1000, 'paid_at' => $date, 'method' => 'tunai'])
+            ->assertUnprocessable()->assertJsonPath('errors.purchase.0', 'Faktur ini sudah dibatalkan dan tidak dapat diubah.');
+        $this->postJson("/api/purchases/{$p['id']}/receipts", ['received_at' => $date, 'items' => [['purchase_item_id' => $p['items'][0]['id'], 'qty' => 1]]])
+            ->assertUnprocessable();
+        $this->postJson("/api/purchases/{$p['id']}/cancel", ['reason' => 'Batal lagi'])->assertUnprocessable();
+    }
+
+    public function test_cannot_cancel_after_goods_received(): void
+    {
+        $this->actingAs($this->admin);
+        $p = $this->postJson('/api/purchases', $this->payload())->json('data');
+        $this->postJson("/api/purchases/{$p['id']}/receipts", [
+            'received_at' => '2026-11-11', 'items' => [['purchase_item_id' => $p['items'][0]['id'], 'qty' => 1]],
+        ])->assertCreated();
+
+        $this->postJson("/api/purchases/{$p['id']}/cancel", ['reason' => 'Tidak jadi beli'])
+            ->assertUnprocessable()->assertJsonPath('errors.purchase.0', 'Faktur yang barangnya sudah diterima tidak bisa dibatalkan.');
+        $this->assertSame(1, $this->pakan->fresh()->stock);
+    }
+
     public function test_supplier_crud(): void
     {
         $this->actingAs($this->admin);

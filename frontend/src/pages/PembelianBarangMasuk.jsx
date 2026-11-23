@@ -11,6 +11,7 @@ import {
   PILL_CLASS,
   RECEIPT_STATUS_OPTIONS,
   formatDateLong,
+  matchesStatus,
   formatDateShort,
   lastPaymentDate,
   paymentPill,
@@ -56,7 +57,7 @@ export default function PembelianBarangMasuk() {
       if (q && !p.purchaseNo.toLowerCase().includes(q) && !p.supplierName.toLowerCase().includes(q)) {
         return false;
       }
-      if (status && p.status !== status) return false;
+      if (!matchesStatus(p, status)) return false;
       if (!inPeriod(p.date, period)) return false;
       return true;
     });
@@ -275,6 +276,7 @@ function SelectedInvoice({ purchase: p, navigate, addPayment }) {
   const debt = purchaseDebt(p);
   const lastReception = (p.receptions || []).at(-1);
   const allReceived = p.status === "diterima";
+  const canReceive = !allReceived && !p.cancelled;
   const unit = unitOf(p.items);
   const lastPaid = lastPaymentDate(p);
 
@@ -297,6 +299,12 @@ function SelectedInvoice({ purchase: p, navigate, addPayment }) {
             {p.locationName} · Dipesan {formatDateLong(p.date)}
           </span>
         </div>
+
+        {p.cancelled && (
+          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+            Dibatalkan oleh {p.cancelledBy}: {p.cancelReason}
+          </p>
+        )}
 
         <div className="mt-4 overflow-x-auto rounded-lg border border-neutral-200">
           <table className="w-full min-w-[420px] text-left text-xs">
@@ -333,7 +341,7 @@ function SelectedInvoice({ purchase: p, navigate, addPayment }) {
           </table>
         </div>
 
-        {!allReceived && (
+        {canReceive && (
           <div className="mt-4 flex items-start gap-2 rounded-lg bg-brand-50 px-3 py-2.5 text-xs text-brand-700">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
             <span>
@@ -344,7 +352,7 @@ function SelectedInvoice({ purchase: p, navigate, addPayment }) {
           </div>
         )}
 
-        {!allReceived && (
+        {canReceive && (
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               {lastReception ? (

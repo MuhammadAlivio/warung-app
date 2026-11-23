@@ -419,6 +419,8 @@ class FinanceService
             ->join('purchases as p', 'p.id', '=', 'pp.purchase_id')
             ->join('suppliers as sup', 'sup.id', '=', 'p.supplier_id')
             ->leftJoin('users as u', 'u.id', '=', 'pp.user_id')
+            // Faktur dibatalkan: pembayarannya dianggap dikembalikan pemasok, tidak dihitung
+            ->whereNull('p.cancelled_at')
             ->whereBetween('pp.paid_at', $range)
             ->select('pp.id', 'pp.paid_at', 'pp.amount', 'pp.method', 'pp.created_at', 'p.purchase_no', 'sup.name as supplier_name', 'u.name as created_by')
             ->get()
@@ -491,7 +493,8 @@ class FinanceService
         $row = DB::selectOne("select
             (select coalesce(sum(sp.amount), 0) from sale_payments sp join sales s on s.id = sp.sale_id
                 where s.payment_status <> 'batal' and $saleDate < ?) as sales_in,
-            (select coalesce(sum(amount), 0) from purchase_payments where paid_at < ?) as purchase_out,
+            (select coalesce(sum(pp.amount), 0) from purchase_payments pp join purchases p on p.id = pp.purchase_id
+                where p.cancelled_at is null and pp.paid_at < ?) as purchase_out,
             (select coalesce(sum(case when type = 'masuk' then amount else -amount end), 0) from cash_entries
                 where deleted_at is null and entry_date < ?) as manual,
             (select coalesce(sum(s.total - s.paid_amount), 0) from sales s

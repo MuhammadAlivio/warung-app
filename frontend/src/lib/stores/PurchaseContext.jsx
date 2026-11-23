@@ -23,6 +23,10 @@ const fromApi = (p) => ({
   notes: p.notes,
   estimatedNextDelivery: p.estimated_next_delivery,
   createdBy: p.created_by ?? "-",
+  cancelled: !!p.cancelled,
+  cancelledAt: p.cancelled_at,
+  cancelledBy: p.cancelled_by ?? "-",
+  cancelReason: p.cancel_reason ?? "",
   createdAt: p.created_at,
   items: p.items.map((i) => ({
     id: i.id,
@@ -113,6 +117,13 @@ export function PurchaseProvider({ children }) {
     return p;
   }, []);
 
+  /** Batalkan faktur yang tidak jadi (hanya jika belum ada barang diterima). */
+  const cancelPurchase = useCallback(async (id, reason) => {
+    const p = fromApi((await api(`/api/purchases/${id}/cancel`, { method: "POST", body: { reason } })).data);
+    upsert(p);
+    return p;
+  }, []);
+
   /** items: [{ purchaseItemId, qty }]. Stok barang bertambah di backend, lalu daftar stok dimuat ulang. */
   const receiveItems = useCallback(async (id, { date, deliveryNote, notes, items }) => {
     const p = fromApi((await api(`/api/purchases/${id}/receipts`, {
@@ -166,10 +177,10 @@ export function PurchaseProvider({ children }) {
   const value = useMemo(
     () => ({
       purchases, suppliers, locations, loading, loaded, error, reload, getPurchase,
-      addPurchase, addPayment, receiveItems, addSupplier, updateSupplier, addLocation, renameLocation, deleteLocation,
+      addPurchase, addPayment, receiveItems, cancelPurchase, addSupplier, updateSupplier, addLocation, renameLocation, deleteLocation,
     }),
     [purchases, suppliers, locations, loading, loaded, error, reload, getPurchase,
-      addPurchase, addPayment, receiveItems, addSupplier, updateSupplier, addLocation, renameLocation, deleteLocation],
+      addPurchase, addPayment, receiveItems, cancelPurchase, addSupplier, updateSupplier, addLocation, renameLocation, deleteLocation],
   );
 
   return <PurchaseCtx.Provider value={value}>{children}</PurchaseCtx.Provider>;

@@ -19,7 +19,20 @@ export const PAYMENT_STATUS = {
   lunas: { label: "Lunas", tone: "green" },
 };
 
-export const RECEIPT_STATUS_OPTIONS = Object.entries(RECEIPT_STATUS).map(([value, s]) => ({ value, label: s.label }));
+/** Faktur yang tidak jadi (dibatalkan admin). Menggantikan status penerimaan & pembayaran di tampilan. */
+export const CANCELLED_STATUS = { label: "Dibatalkan", tone: "red" };
+
+export const RECEIPT_STATUS_OPTIONS = [
+  ...Object.entries(RECEIPT_STATUS).map(([value, s]) => ({ value, label: s.label })),
+  { value: "batal", label: CANCELLED_STATUS.label },
+];
+
+/** Filter status di daftar faktur: "batal" = faktur dibatalkan; status lain hanya faktur aktif. */
+export const matchesStatus = (p, status) =>
+  !status || (status === "batal" ? p.cancelled : !p.cancelled && p.status === status);
+
+/** Faktur bisa dibatalkan selama belum ada barang diterima (aturan sama dengan backend). */
+export const canCancel = (p) => !p.cancelled && p.status === "belum_diterima" && p.receptions.length === 0;
 
 // Lokasi penerimaan dikelola admin di database (PurchaseContext.locations), nama tampil = purchase.locationName
 
@@ -70,6 +83,7 @@ export const PILL_CLASS = {
 
 /** Label + warna pill status penerimaan; `short` menambahkan "· 6/14 unit" pada status sebagian. */
 export function receiptPill(p, { short = false } = {}) {
+  if (p.cancelled) return CANCELLED_STATUS;
   const s = RECEIPT_STATUS[p.status] ?? RECEIPT_STATUS.belum_diterima;
   if (short && p.status === "diterima_sebagian") {
     return { label: `Sebagian · ${purchaseReceived(p)}/${qtyText(purchaseQty(p), unitOf(p.items))}`, tone: s.tone };
@@ -78,6 +92,7 @@ export function receiptPill(p, { short = false } = {}) {
 }
 
 export function paymentPill(p) {
+  if (p.cancelled) return p.paid > 0 ? { label: "Dana dikembalikan", tone: "gray" } : CANCELLED_STATUS;
   return PAYMENT_STATUS[p.paymentStatus] ?? PAYMENT_STATUS.belum_bayar;
 }
 
@@ -90,8 +105,9 @@ export const daysUntil = (date) => {
   return Math.round((new Date(y, m - 1, d) - today) / 86400000);
 };
 
-/** Kartu ringkasan halaman Pembelian, dihitung dari data faktur. */
-export function purchaseSummary(purchases, month) {
+/** Kartu ringkasan halaman Pembelian, dihitung dari data faktur (faktur dibatalkan tidak dihitung). */
+export function purchaseSummary(allPurchases, month) {
+  const purchases = allPurchases.filter((p) => !p.cancelled);
   const inMonth = purchases.filter((p) => p.date.slice(0, 7) === month);
   const withDebt = purchases.filter((p) => p.debt > 0);
   const dueSoon = withDebt.filter((p) => {

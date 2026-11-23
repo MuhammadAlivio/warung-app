@@ -141,9 +141,42 @@ class PurchaseService
         });
     }
 
+    /**
+     * Batalkan faktur yang tidak jadi (tidak dihapus, PRD BR-07). Hanya jika belum ada barang diterima,
+     * sehingga stok tidak pernah berubah. Pembayaran yang sudah ada dianggap dikembalikan pemasok
+     * dan tidak lagi dihitung FinanceService.
+     */
+    public function cancel(Purchase $purchase, string $reason, User $user): Purchase
+    {
+        return DB::transaction(function () use ($purchase, $reason, $user) {
+            $locked = $this->lock($purchase);
+
+            if ($locked->receipts()->exists() || $locked->status !== 'belum_diterima') {
+                throw ValidationException::withMessages([
+                    'purchase' => 'Faktur yang barangnya sudah diterima tidak bisa dibatalkan.',
+                ]);
+            }
+
+            $locked->forceFill([
+                'cancelled_at' => now(),
+                'cancelled_by' => $user->id,
+                'cancel_reason' => $reason,
+            ])->save();
+
+            return $locked->fresh(Purchase::API_WITH);
+        });
+    }
+
+    /** Kunci baris faktur; faktur yang sudah dibatalkan tidak bisa diubah lagi. */
     private function lock(Purchase $purchase): Purchase
     {
-        return Purchase::whereKey($purchase->getKey())->lockForUpdate()->firstOrFail();
+        $locked = Purchase::whereKey($purchase->getKey())->lockForUpdate()->firstOrFail();
+
+        if ($locked->isCancelled()) {
+            throw ValidationException::withMessages(['purchase' => 'Faktur ini sudah dibatalkan dan tidak dapat diubah.']);
+        }
+
+        return $locked;
     }
 
     private function insertPayment(Purchase $purchase, string $date, string $method, int $amount, ?string $note, User $user): void

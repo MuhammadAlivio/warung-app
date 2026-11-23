@@ -119,6 +119,30 @@ class PurchaseController extends Controller
         return response()->json(['data' => $purchase->toApi()]);
     }
 
+    /** Batalkan faktur yang tidak jadi (hanya jika belum ada barang diterima). */
+    public function cancel(Request $request, Purchase $purchase): JsonResponse
+    {
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'min:5', 'max:300'],
+        ], [
+            'reason.required' => 'Alasan pembatalan wajib diisi',
+            'reason.min' => 'Alasan pembatalan minimal 5 karakter',
+            'reason.max' => 'Alasan pembatalan maksimal 300 karakter',
+        ]);
+
+        $purchase = $this->purchases->cancel($purchase, trim($data['reason']), $request->user());
+
+        $paid = $purchase->paid();
+        $this->logger->record(
+            $request, 'pembelian', 'ubah',
+            "Membatalkan pembelian {$purchase->purchase_no}: {$purchase->cancel_reason}"
+                .($paid > 0 ? ' (pembayaran Rp'.number_format($paid, 0, ',', '.').' dianggap dikembalikan pemasok)' : ''),
+            $purchase,
+        );
+
+        return response()->json(['data' => $purchase->toApi()]);
+    }
+
     public function receive(Request $request, Purchase $purchase): JsonResponse
     {
         $data = $request->validate([

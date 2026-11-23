@@ -44,7 +44,7 @@ export default function TerimaBarang() {
     );
   }
   if (!purchase) return <Navigate to="/pembelian" replace />;
-  if (purchase.status === "diterima") return <Navigate to={`/pembelian/${id}`} replace />;
+  if (purchase.status === "diterima" || purchase.cancelled) return <Navigate to={`/pembelian/${id}`} replace />;
   return <TerimaForm purchase={purchase} />;
 }
 

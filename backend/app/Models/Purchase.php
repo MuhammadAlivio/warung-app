@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable([
     'purchase_no', 'supplier_id', 'user_id', 'purchase_date', 'due_date', 'location', 'status',
     'subtotal', 'additional_cost', 'total', 'estimated_next_delivery', 'notes',
+    'cancelled_at', 'cancelled_by', 'cancel_reason',
 ])]
 class Purchase extends Model
 {
@@ -27,6 +28,7 @@ class Purchase extends Model
             'purchase_date' => 'date',
             'due_date' => 'date',
             'estimated_next_delivery' => 'date',
+            'cancelled_at' => 'datetime',
             'subtotal' => 'integer',
             'additional_cost' => 'integer',
             'total' => 'integer',
@@ -64,14 +66,25 @@ class Purchase extends Model
         return $this->hasMany(PurchaseReceipt::class)->orderBy('received_at')->orderBy('id');
     }
 
+    public function canceller(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
+    }
+
+    public function isCancelled(): bool
+    {
+        return $this->cancelled_at !== null;
+    }
+
     public function paid(): int
     {
         return (int) $this->payments->sum('amount');
     }
 
+    /** Faktur dibatalkan tidak punya utang lagi (pembayaran dianggap dikembalikan pemasok). */
     public function debt(): int
     {
-        return max($this->total - $this->paid(), 0);
+        return $this->isCancelled() ? 0 : max($this->total - $this->paid(), 0);
     }
 
     /** belum_bayar | sebagian | lunas */
@@ -104,7 +117,7 @@ class Purchase extends Model
     }
 
     /** Relasi yang dibutuhkan toApi(). */
-    public const API_WITH = ['supplier', 'locationRef', 'user:id,name', 'items.product:id,sku', 'payments.user:id,name', 'receipts.items', 'receipts.receiver:id,name'];
+    public const API_WITH = ['supplier', 'locationRef', 'user:id,name', 'canceller:id,name', 'items.product:id,sku', 'payments.user:id,name', 'receipts.items', 'receipts.receiver:id,name'];
 
     public function toApi(): array
     {
@@ -129,6 +142,10 @@ class Purchase extends Model
             'estimated_next_delivery' => $this->estimated_next_delivery?->toDateString(),
             'notes' => $this->notes ?? '',
             'created_by' => $this->user?->name,
+            'cancelled' => $this->isCancelled(),
+            'cancelled_at' => $local($this->cancelled_at)?->format('Y-m-d H:i'),
+            'cancelled_by' => $this->canceller?->name,
+            'cancel_reason' => $this->cancel_reason ?? '',
             'created_at' => $local($this->created_at)?->format('Y-m-d H:i'),
             'items' => $this->items->map(fn (PurchaseItem $i) => [
                 'id' => $i->id,

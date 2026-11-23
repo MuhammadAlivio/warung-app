@@ -74,6 +74,7 @@ Route::middleware(['auth:sanctum', EnsureActive::class, LogActivity::class])->gr
         Route::get('/purchases/{purchase}', [PurchaseController::class, 'show'])->whereNumber('purchase');
         Route::post('/purchases/{purchase}/payments', [PurchaseController::class, 'addPayment'])->whereNumber('purchase');
         Route::post('/purchases/{purchase}/receipts', [PurchaseController::class, 'receive'])->whereNumber('purchase');
+        Route::post('/purchases/{purchase}/cancel', [PurchaseController::class, 'cancel'])->whereNumber('purchase');
 
         // Keuangan: laporan harian/mingguan/bulanan + catatan kas manual
         Route::get('/finance/report', [FinanceController::class, 'report']);
